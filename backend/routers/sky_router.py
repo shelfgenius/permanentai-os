@@ -24,6 +24,9 @@ CITIES = {
     "berlin":        {"label": "Berlin, DE",         "country": "DE", "lat": 52.52,   "lon": 13.405,    "tz": "Europe/Berlin"},
     "mumbai":        {"label": "Mumbai, IN",         "country": "IN", "lat": 19.076,  "lon": 72.8777,   "tz": "Asia/Kolkata"},
     "constanta":     {"label": "Constanța, RO",     "country": "RO", "lat": 44.1598, "lon": 28.6348,   "tz": "Europe/Bucharest"},
+    "mangalia":      {"label": "Mangalia, RO",      "country": "RO", "lat": 43.8,    "lon": 28.5833,   "tz": "Europe/Bucharest"},
+    "medgidia":      {"label": "Medgidia, RO",      "country": "RO", "lat": 44.25,   "lon": 28.2833,   "tz": "Europe/Bucharest"},
+    "eforie":        {"label": "Eforie, RO",         "country": "RO", "lat": 44.0667, "lon": 28.65,     "tz": "Europe/Bucharest"},
 }
 
 

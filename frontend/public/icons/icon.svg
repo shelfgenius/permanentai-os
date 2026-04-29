@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#060606"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#ff8c00" stroke-width="8" opacity="0.4"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#ff8c00" stroke-width="4" opacity="0.6"/>
+  <circle cx="256" cy="256" r="80" fill="#ff8c0022"/>
+  <circle cx="256" cy="256" r="40" fill="#ff8c00" opacity="0.9"/>
+  <circle cx="256" cy="256" r="20" fill="#fff" opacity="0.95"/>
+  <!-- Orbit ring -->
+  <ellipse cx="256" cy="256" rx="160" ry="50" fill="none" stroke="#ff8c00" stroke-width="3" opacity="0.5" transform="rotate(-30 256 256)"/>
+  <!-- Dots on orbit -->
+  <circle cx="380" cy="210" r="8" fill="#ff8c00" opacity="0.8"/>
+  <circle cx="132" cy="302" r="5" fill="#ff8c00" opacity="0.5"/>
+</svg>

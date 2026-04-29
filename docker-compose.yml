@@ -1,0 +1,163 @@
+version: "3.9"
+
+networks:
+  techquery_net:
+    driver: bridge
+
+volumes:
+  data_volume:
+    driver: local
+  chromadb_data:
+    driver: local
+  sqlite_data:
+    driver: local
+
+x-common-env: &common-env
+  PYTHONUNBUFFERED: "1"
+  TZ: Europe/Bucharest
+
+services:
+  # ── Orchestrator (FastAPI + LangChain) ────────────────────────────────────
+  orchestrator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tq_orchestrator
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    env_file: ./backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - data_volume:/data
+    depends_on:
+      - chromadb
+    networks:
+      - techquery_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Scavenger Agent ────────────────────────────────────────────────────────
+  scavenger_agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.scavenger
+    container_name: tq_scavenger
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      ORCHESTRATOR_URL: http://orchestrator:8000
+    env_file: ./backend/.env
+    volumes:
+      - ./backend:/app
+      - data_volume:/data
+    networks:
+      - techquery_net
+    depends_on:
+      - orchestrator
+
+  # ── ChromaDB ──────────────────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: tq_chromadb
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      CHROMA_SERVER_HOST: 0.0.0.0
+      CHROMA_SERVER_HTTP_PORT: "8001"
+      ANONYMIZED_TELEMETRY: "false"
+      ALLOW_RESET: "true"
+    ports:
+      - "8001:8001"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    networks:
+      - techquery_net
+
+  # ── SQLite Service ─────────────────────────────────────────────────────────
+  sqlite_service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.sqlite
+    container_name: tq_sqlite
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    volumes:
+      - sqlite_data:/db
+      - data_volume:/data
+    ports:
+      - "8002:8002"
+    networks:
+      - techquery_net
+
+  # ── Media Pipeline (Whisper + OCR + Vision LLM) ────────────────────────────
+  media_pipeline:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.media
+    container_name: tq_media_pipeline
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      ORCHESTRATOR_URL: http://orchestrator:8000
+    env_file: ./backend/.env
+    volumes:
+      - ./backend:/app
+      - data_volume:/data
+    networks:
+      - techquery_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Frontend (React + Vite) ────────────────────────────────────────────────
+  ui_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tq_ui
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      VITE_API_URL: http://orchestrator:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - techquery_net
+    depends_on:
+      - orchestrator
+
+  # ── Blender Headless Renderer ──────────────────────────────────────────────
+  blender_render:
+    image: linuxserver/blender:latest
+    container_name: tq_blender
+    restart: "no"
+    environment:
+      <<: *common-env
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - data_volume:/data
+      - ./backend/blender_scripts:/scripts
+    networks:
+      - techquery_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

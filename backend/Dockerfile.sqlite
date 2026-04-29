@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements_sqlite.txt ./
+RUN pip install --no-cache-dir -r requirements_sqlite.txt
+COPY . .
+EXPOSE 8002
+CMD ["python", "-m", "db.sqlite_runner"]

@@ -1,0 +1,60 @@
+# Cloud-optimised requirements — no torch/whisper/chromadb (all AI via NIM API)
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
+pydantic-settings==2.2.1
+
+# HTTP client (NIM API, YouTube API, Groq, Gemini)
+httpx==0.27.0
+openai==1.12.0
+requests==2.31.0
+
+# TTS
+edge-tts>=6.1.9
+
+# YouTube
+yt-dlp>=2024.3.10
+
+# PDF / PPTX generation
+fpdf2>=2.7.0
+python-pptx>=0.6.23
+markdown>=3.5
+pypdf==4.0.2
+docx2txt==0.8
+
+# Document / image processing
+pymupdf>=1.23.0
+pillow>=10.0.0
+beautifulsoup4==4.12.3
+
+# File handling
+python-multipart==0.0.9
+aiofiles==23.2.1
+
+# Database (SQLAlchemy — imported at startup, DB init fails gracefully if no PG)
+sqlalchemy==2.0.27
+asyncpg==0.29.0
+pgvector==0.2.5
+
+# Config / utils
+python-dotenv==1.0.1
+tenacity==8.2.3
+pyyaml==6.0.1
+numpy>=1.26.0
+
+# Auth helpers (JWT)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt>=4.0.0
+
+# Google APIs (Gmail, etc.)
+google-api-python-client==2.120.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
+
+# Storage (optional — remove if not using MinIO/S3)
+minio==7.2.4
+boto3==1.34.44
+
+# Sound file for TTS
+soundfile==0.12.1

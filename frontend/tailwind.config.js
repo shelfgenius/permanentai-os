@@ -1,0 +1,98 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        surface: {
+          50:  '#f5f5f7',
+          100: '#3a3a3c',
+          200: '#2c2c2e',
+          300: '#1c1c1e',
+          400: '#000000',
+        },
+        accent: {
+          DEFAULT: '#0a84ff',
+          light:   '#409cff',
+          dark:    '#0071e3',
+          red:     '#ff453a',
+          green:   '#30d158',
+          orange:  '#ff9f0a',
+          purple:  '#bf5af2',
+        },
+        border: {
+          DEFAULT: 'rgba(84,84,88,0.65)',
+          subtle:  'rgba(84,84,88,0.35)',
+        },
+        text: {
+          primary:   '#ffffff',
+          secondary: 'rgba(235,235,245,0.6)',
+          muted:     'rgba(235,235,245,0.3)',
+        },
+        'sky-bg': '#050505',
+        'sky-surface': 'rgba(255, 255, 255, 0.06)',
+        'sky-surface-hover': 'rgba(255, 255, 255, 0.10)',
+        'sky-surface-border': 'rgba(255, 255, 255, 0.08)',
+        'sky-text': '#F2F2F2',
+        'sky-text-secondary': 'rgba(242, 242, 242, 0.6)',
+        'sky-text-tertiary': 'rgba(242, 242, 242, 0.35)',
+        'sky-gold': '#D4A574',
+        'sky-gold-light': '#E0B99A',
+        'sky-slate': '#8B9EB7',
+        'sky-rose': '#C4959A',
+        yt: {
+          bg: '#0F0F0F',
+          surface: '#1F1F1F',
+          border: '#333333',
+          text: '#FFFFFF',
+          muted: '#AAAAAA',
+          red: '#FF0000',
+        },
+      },
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', 'system-ui', '"Helvetica Neue"', 'sans-serif'],
+        mono: ['"SF Mono"', '"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
+        manrope: ['Manrope', 'sans-serif'],
+        inter: ['Inter', 'sans-serif'],
+      },
+      boxShadow: {
+        'sky-sm': '0 2px 8px rgba(0, 0, 0, 0.15)',
+        'sky-md': '0 4px 20px rgba(0, 0, 0, 0.25)',
+        'sky-lg': '0 8px 40px rgba(0, 0, 0, 0.35)',
+        'sky-glow': '0 0 40px rgba(212, 165, 116, 0.08)',
+        'glass-inset': 'inset 0 1px 0 0 rgba(255, 255, 255, 0.12)',
+        'glass-bottom': '0 4px 20px rgba(0, 0, 0, 0.2)',
+      },
+      animation: {
+        'fade-in':    'fadeIn 0.2s ease-out',
+        'slide-up':   'slideUp 0.3s ease-out',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'sun-rotate': 'sun-rotate 20s linear infinite',
+        'cloud-drift': 'cloud-drift 4s ease-in-out infinite alternate',
+        'rain-drop': 'rain-drop 1.5s linear infinite',
+        'moon-pulse': 'moon-pulse 4s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn:  { from: { opacity: 0 }, to: { opacity: 1 } },
+        slideUp: { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
+        'sun-rotate': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } },
+        'cloud-drift': { '0%': { transform: 'translateX(-3px)' }, '100%': { transform: 'translateX(3px)' } },
+        'rain-drop': { '0%': { transform: 'translateY(-2px)', opacity: '0.6' }, '50%': { opacity: '1' }, '100%': { transform: 'translateY(4px)', opacity: '0.6' } },
+        'moon-pulse': { '0%, 100%': { opacity: '0.8' }, '50%': { opacity: '1' } },
+      },
+      typography: (theme) => ({
+        invert: {
+          css: {
+            '--tw-prose-body':        theme('colors.text.primary'),
+            '--tw-prose-headings':    theme('colors.text.primary'),
+            '--tw-prose-code':        theme('colors.accent.light'),
+            '--tw-prose-pre-bg':      theme('colors.surface.200'),
+            '--tw-prose-borders':     theme('colors.border.DEFAULT'),
+          },
+        },
+      }),
+    },
+  },
+  plugins: [],
+};

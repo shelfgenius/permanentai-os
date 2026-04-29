@@ -1,0 +1,20 @@
+services:
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-tts
+    restart: unless-stopped
+    ports:
+      - "8880:8880"
+    environment:
+      - KOKORO_DEFAULT_VOICE=bf_emma
+      - KOKORO_DEFAULT_SPEED=0.95
+    volumes:
+      - kokoro-data:/app/api/src/voices
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8880/v1/audio/speech"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  kokoro-data:

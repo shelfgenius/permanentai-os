@@ -1,0 +1,203 @@
+system:
+  name: "Personal AI OS"
+  version: "2.0.0"
+  online_mode: true
+  language: "ro"
+  data_root: "/data"
+
+ai_models:
+  llm: "gpt-4o-mini"
+  embedding: "nomic-embed-text"
+  tts: "xtts-v2"
+  vision_llm: "llava"
+  whisper: "base"
+  ollama_base_url: "http://localhost:11434"
+
+quality:
+  min_video_resolution: "1080p"
+  chroma_similarity_threshold: 0.75
+  max_chunk_tokens: 500
+  chunk_overlap_tokens: 50
+  scavenger_trigger_threshold: 0.75
+
+polling:
+  gmail_interval_minutes: 5
+  scavenger_auto_interval_hours: 6
+  spaced_repetition_check_hour: 9
+
+domains:
+  maritim:
+    label: "Maritim"
+    icon: "⚓"
+    color: "#00d4ff"
+    particle_color: "#0066cc"
+    mascot: "captain"
+    voice_speaker: "maritime_male"
+    voice_style: "ferm, dictie clara"
+    animation_idle: "idle_sway"
+    animation_speak: "point_ahead"
+    animation_alert: "alert_scan"
+    waveform_style: "circular"
+    folder: "/data/Maritim"
+
+  constructii:
+    label: "Construcții"
+    icon: "🏗️"
+    color: "#ff8c00"
+    particle_color: "#cc5500"
+    mascot: "engineer"
+    voice_speaker: "construction_male"
+    voice_style: "grav, autoritar"
+    animation_idle: "idle_arms_crossed"
+    animation_speak: "point_right"
+    animation_alert: "helmet_tap"
+    waveform_style: "bars_symmetric"
+    folder: "/data/Constructii"
+
+  design_interior:
+    label: "Design Interior"
+    icon: "🛋️"
+    color: "#e8d5b7"
+    particle_color: "#c9a96e"
+    mascot: "designer"
+    voice_speaker: "interior_female"
+    voice_style: "elegant, fluid"
+    animation_idle: "idle_sketch"
+    animation_speak: "gesture_sweep"
+    animation_alert: "raise_eyebrow"
+    waveform_style: "wave_fluid"
+    folder: "/data/Design_Interior"
+
+  condus:
+    label: "Condus"
+    icon: "🚗"
+    color: "#ff4444"
+    particle_color: "#cc0000"
+    mascot: "driver"
+    voice_speaker: "driving_neutral"
+    voice_style: "energic, didactic"
+    animation_idle: "idle_ready"
+    animation_speak: "point_forward"
+    animation_alert: "alert_brake"
+    waveform_style: "bars_dynamic"
+    folder: "/data/Condus"
+
+  educatie:
+    label: "Educație"
+    icon: "📚"
+    color: "#00cc66"
+    particle_color: "#009944"
+    mascot: "owl_teacher"
+    voice_speaker: "education_female"
+    voice_style: "calm, incurajator"
+    animation_idle: "idle_reading"
+    animation_speak: "nod_explain"
+    animation_alert: "raise_hand"
+    waveform_style: "circular_soft"
+    folder: "/data/Educatie"
+    subdomains:
+      - { id: "ro",      label: "Română",                icon: "🇷🇴" }
+      - { id: "math",    label: "Matematică",             icon: "📐" }
+      - { id: "bio",     label: "Biologie",               icon: "🧬" }
+      - { id: "en",      label: "Engleză Oral",           icon: "🗣️" }
+      - { id: "digital", label: "Competențe Digitale",    icon: "💻" }
+
+  3d_printing:
+    label: "3D Printing"
+    icon: "🖨️"
+    color: "#a78bfa"
+    particle_color: "#7c3aed"
+    mascot: "maker"
+    voice_speaker: "printing_neutral"
+    voice_style: "tehnic, precis"
+    animation_idle: "idle_calibrate"
+    animation_speak: "point_layer"
+    animation_alert: "alert_jam"
+    waveform_style: "bars_symmetric"
+    folder: "/data/3D_Printing"
+
+  3d_modeling:
+    label: "3D Modeling"
+    icon: "🧊"
+    color: "#22d3ee"
+    particle_color: "#0891b2"
+    mascot: "modeler"
+    voice_speaker: "modeling_neutral"
+    voice_style: "creativ, dinamic"
+    animation_idle: "idle_orbit"
+    animation_speak: "gesture_mesh"
+    animation_alert: "alert_clip"
+    waveform_style: "circular"
+    folder: "/data/3D_Modeling"
+
+alexa:
+  enabled: true
+  mode: "a2dp"                  # a2dp | ask_sdk
+  bluetooth_device: ""          # auto-detect
+  ask_skill_id: ""              # fill for ASK SDK mode
+  ask_app_id: ""
+  wake_word: "Alexa"
+  tts_passthrough: true
+
+social_media:
+  gmail:
+    enabled: true
+    poll_interval_minutes: 5
+    urgent_keywords: ["urgent", "important", "factura", "plata", "deadline"]
+    auto_reply: false
+  whatsapp:
+    enabled: true
+    webhook_verify_token: "techquery_wh_secret"
+    auto_reply: false
+    notification_sound: true
+  instagram:
+    enabled: true
+    webhook_verify_token: "techquery_ig_secret"
+    notification_sound: false
+
+animation:
+  aura_pulse_frequency_hz: 2.0
+  aura_pulse_intensity_min: 0.4
+  aura_pulse_intensity_max: 1.0
+  subtitle_opacity: 0.85
+  subtitle_font: "Orbitron"
+  subtitle_fade_in_ms: 150
+  subtitle_linger_ms: 500
+  holographic_scan_opacity: 0.07
+  holographic_scan_speed_s: 4
+  media_float_amplitude_px: 5
+  media_float_duration_s: 3
+  bg_video_opacity: 0.70
+  lipsync_latency_target_ms: 80
+  particle_count: 180
+  particle_speed_idle: 0.3
+  particle_speed_speaking: 1.2
+
+spaced_repetition:
+  intervals_days: [1, 3, 7, 21, 60]
+  subjects:
+    - { id: "ro", label: "Română" }
+    - { id: "math", label: "Matematică" }
+    - { id: "bio", label: "Biologie" }
+    - { id: "en", label: "Engleză Oral" }
+    - { id: "digital", label: "Competențe Digitale" }
+
+data_structure:
+  domains:
+    - name: Constructii
+      subfolders: [Imagini, Video, Documente, Calcule]
+    - name: Design_Interior
+      subfolders: [Imagini, Video, Documente, Calcule]
+    - name: Maritim
+      subfolders: [Imagini, Video, Documente, Calcule]
+    - name: Condus
+      subfolders: [Imagini, Video, Documente, Calcule]
+    - name: Educatie
+      subfolders: [Romana, Matematica, Biologie, Engleza_Oral, Competente_Digitale]
+
+blender:
+  render_samples: 128
+  output_format: "PNG"
+  resolution_x: 1920
+  resolution_y: 1080
+  use_gpu: true

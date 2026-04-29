@@ -1,0 +1,48 @@
+# Node
+node_modules/
+dist/
+.cache/
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+
+# Python
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+backend/venv/
+backend/*.pyc
+backend/**/*.pyc
+*.egg-info/
+
+# Electron build output
+dist/
+out/
+
+# Environment files (contains secrets)
+backend/.env
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Kokoro TTS models (large binaries, download separately)
+backend/kokoro-models/*.onnx
+backend/kokoro-models/*.bin
+backend/test_*.wav
+kokoro-tts/data/
+
+# Misc
+.wrangler/

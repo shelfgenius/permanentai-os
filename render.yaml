@@ -1,0 +1,17 @@
+# Render Blueprint — auto-deploys backend when pushed to main/master
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: permanentai-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    repo: https://github.com/YOUR_GITHUB_USERNAME/retail-engine
+    branch: main
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8000"
+      # All other env vars are set in Render Dashboard → Environment
+      # DO NOT put secrets here — use Render's secret env var UI

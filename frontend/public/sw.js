@@ -1,5 +1,5 @@
 /* Personal AI OS — Service Worker v4 */
-const CACHE = 'personal-ai-os-v4';
+const CACHE = 'personal-ai-os-v5';
 const OFFLINE_URL = '/';
 
 const PRECACHE = [

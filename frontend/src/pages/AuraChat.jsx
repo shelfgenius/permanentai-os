@@ -65,6 +65,7 @@ function useVoice(backendUrl) {
   }, []);
 
   const toggleRecording = useCallback(async () => {
+    console.log('[AURA] toggleRecording called, isRecording:', isRecording);
     if (isRecording) {
       // ── Stop: end SpeechRecognition, return transcript ──
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -116,6 +117,7 @@ function useVoice(backendUrl) {
 
         // Start browser SpeechRecognition (live, on-device)
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        console.log('[AURA] SpeechRecognition API available:', !!SR);
         if (SR) {
           const sr = new SR();
           sr.continuous = true;
@@ -131,7 +133,8 @@ function useVoice(backendUrl) {
             liveTranscriptRef.current = (final + ' ' + interim).trim();
             setTranscript(liveTranscriptRef.current);
           };
-          sr.onerror = (e) => { console.warn('[AURA] SpeechRecognition error:', e.error); };
+          sr.onerror = (e) => { console.warn('[AURA] SpeechRecognition error:', e.error, e); };
+          sr.onend = () => { console.log('[AURA] SpeechRecognition ended naturally'); };
           recognitionRef.current = sr;
           sr.start();
           console.log('[AURA] SpeechRecognition started (live)');
@@ -503,6 +506,7 @@ export default function AuraChat({ onBack }) {
   }, [voice, handleSendMessage, startListening]);
 
   const handleToggleVoice = useCallback(async () => {
+    console.log('[AURA] handleToggleVoice, isRecording:', voice.isRecording);
     if (voice.isRecording) {
       await stopAndProcess();
     } else {

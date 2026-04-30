@@ -71,12 +71,6 @@ function injectSS(){if(!document.getElementById('sc-ss')){const s=document.creat
 const DEMO_OBJECTS = [
   { id:'cam-1',name:'Camera',type:'camera',visible:true,locked:true,verts:0,faces:0,transform:{position:[5,5,5],rotation:[0,0,0],scale:[1,1,1]} },
   { id:'light-key',name:'Key Light',type:'light',visible:true,locked:true,verts:0,faces:0,transform:{position:[5,8,3],rotation:[0,0,0],scale:[1,1,1]} },
-  { id:'mesh-head',name:'Cyborg Head',type:'mesh',visible:true,locked:false,verts:2402,faces:1196,transform:{position:[0,1.5,0],rotation:[0,0,0],scale:[1,1,1]},material:{color:'#2a2a35',metalness:.7,roughness:.3,emissive:0} },
-  { id:'mesh-eye-l',name:'Eye Lens L',type:'mesh',visible:true,locked:false,verts:482,faces:240,parent:'mesh-head',transform:{position:[-.4,.1,.85],rotation:[0,0,0],scale:[.25,.25,.25]},material:{color:'#06b6d4',metalness:0,roughness:0,emissive:.5} },
-  { id:'mesh-eye-r',name:'Eye Lens R',type:'mesh',visible:true,locked:false,verts:482,faces:240,parent:'mesh-head',transform:{position:[.4,.1,.85],rotation:[0,0,0],scale:[.25,.25,.25]},material:{color:'#06b6d4',metalness:0,roughness:0,emissive:.5} },
-  { id:'mesh-console',name:'Console',type:'mesh',visible:true,locked:false,verts:1200,faces:600,transform:{position:[2.5,.05,-1],rotation:[0,-.3,0],scale:[1,1,1]},material:{color:'#1e1e28',metalness:.5,roughness:.4,emissive:0} },
-  { id:'mesh-crystal',name:'Data Crystal',type:'mesh',visible:true,locked:false,verts:320,faces:160,transform:{position:[-1.5,.4,1],rotation:[0,0,0],scale:[1,1,1]},material:{color:'#10b981',metalness:0,roughness:.1,emissive:.2} },
-  { id:'mesh-emitter',name:'Hologram Emitter',type:'mesh',visible:true,locked:false,verts:640,faces:320,transform:{position:[-2,.05,-.5],rotation:[0,0,0],scale:[1,1,1]},material:{color:'#1a1a24',metalness:.6,roughness:.3,emissive:0} },
 ];
 
 const INIT = {
@@ -515,8 +509,7 @@ function DynMesh({ obj, selected }) {
 function Scene3D() {
   const { state } = useS();
   const s = state.selectedId;
-  // Dynamic objects from generation and manual adds
-  const dynamicObjects = state.objects.filter(o => o.type === 'mesh' && !['mesh-head', 'mesh-console', 'mesh-crystal', 'mesh-emitter'].includes(o.id));
+  const meshObjects = state.objects.filter(o => o.type === 'mesh');
   return (
     <>
       <ambientLight intensity={.25} color="#b4c6ef" />
@@ -525,14 +518,8 @@ function Scene3D() {
       <Environment preset={state.envPreset} environmentIntensity={.5} />
       <ContactShadows position={[0, -.01, 0]} opacity={.35} blur={2} far={4} />
       <Grid position={[0, -.01, 0]} args={[100, 100]} cellSize={1} cellThickness={.5} cellColor="rgba(255,255,255,.04)" sectionSize={10} sectionThickness={1} sectionColor="rgba(6,182,212,.15)" fadeDistance={40} fadeStrength={1} infiniteGrid />
-      <CyborgHead selected={s === 'mesh-head'} />
-      <Console3D /><Crystal /><Emitter />
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]}><planeGeometry args={[100, 100]} /><meshStandardMaterial color="#0a0a0f" roughness={1} metalness={0} /></mesh>
-      {s === 'mesh-head' && <SelBox position={[0, 1.5, 0]} size={[3.2, 3.5, 3.2]} />}
-      {s === 'mesh-console' && <SelBox position={[2.5, .35, -1]} size={[3.5, 1.2, 1.8]} />}
-      {s === 'mesh-crystal' && <SelBox position={[-1.5, .4, 1]} size={[.9, .9, .9]} />}
-      {s === 'mesh-emitter' && <SelBox position={[-2, .35, -.5]} size={[.6, 1, .6]} />}
-      {dynamicObjects.map(obj => (
+      {meshObjects.map(obj => (
         <DynMesh key={obj.id} obj={obj} selected={s === obj.id} />
       ))}
     </>

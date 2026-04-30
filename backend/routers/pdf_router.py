@@ -177,36 +177,48 @@ async def research_to_pdf(req: PdfResearchRequest):
 Target approximately {req.pages} pages of content. Be thorough, factual, and cite sources where possible."""
 
     research_content = ""
+    nim_base = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
-    # Try Gemini first
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_key:
+    # ── 1. Nemotron (primary — uses NVIDIA_API_KEY) ──
+    nemotron_key = os.getenv("NVIDIA_API_KEY", "")
+    if nemotron_key:
         try:
             import httpx
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
-            async with httpx.AsyncClient(timeout=120) as client:
-                r = await client.post(url, json={
-                    "contents": [{"role": "user", "parts": [{"text": f"{system_prompt}\n\nTopic: {req.topic}"}]}],
-                    "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
-                })
+            async with httpx.AsyncClient(timeout=180) as client:
+                r = await client.post(
+                    f"{nim_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {nemotron_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Topic: {req.topic}"},
+                        ],
+                        "max_tokens": max_tokens,
+                        "temperature": 0.4,
+                    },
+                )
             if r.status_code == 200:
                 data = r.json()
-                research_content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                research_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                logger.info("Nemotron research OK, %d chars", len(research_content))
+            else:
+                logger.warning("Nemotron research %d: %s", r.status_code, r.text[:200])
         except Exception as e:
-            logger.warning("Gemini research failed: %s", e)
+            logger.warning("Nemotron research failed: %s", e)
 
-    # Fallback: NVIDIA NIM
+    # ── 2. NVIDIA Coding model (fallback) ──
     if not research_content:
-        nim_key = os.getenv("NVIDIA_API_KEY_CODING", "")
-        if nim_key:
+        coding_key = os.getenv("NVIDIA_API_KEY_CODING", "")
+        if coding_key:
             try:
                 import httpx
                 async with httpx.AsyncClient(timeout=120) as client:
                     r = await client.post(
-                        "https://integrate.api.nvidia.com/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {nim_key}", "Content-Type": "application/json"},
+                        f"{nim_base}/chat/completions",
+                        headers={"Authorization": f"Bearer {coding_key}", "Content-Type": "application/json"},
                         json={
-                            "model": "qwen/qwen3.5-72b-a10b-instruct",
+                            "model": "qwen/qwen2.5-coder-32b-instruct",
                             "messages": [
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": f"Topic: {req.topic}"},
@@ -219,10 +231,10 @@ Target approximately {req.pages} pages of content. Be thorough, factual, and cit
                     data = r.json()
                     research_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             except Exception as e:
-                logger.warning("NVIDIA research failed: %s", e)
+                logger.warning("NVIDIA coding research failed: %s", e)
 
     if not research_content:
-        raise HTTPException(502, "Could not generate research content. Check AI API keys.")
+        raise HTTPException(502, "Could not generate research content. Check NVIDIA_API_KEY.")
 
     # Convert to PDF
     html = _markdown_to_html(research_content, f"Research: {req.topic}")

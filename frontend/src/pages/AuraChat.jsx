@@ -447,9 +447,24 @@ export default function AuraChat({ onBack }) {
               fullText += token;
               sentenceBuf += token;
               setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m));
-              if (/[.!?\n]\s*$/.test(sentenceBuf) && sentenceBuf.trim().length > 10) {
-                enqueueSpeak(sentenceBuf.trim(), backendUrl, 'general', 'aura');
-                sentenceBuf = '';
+              // Flush to TTS only at real sentence boundaries:
+              // - period/exclamation/question followed by space+uppercase (new sentence)
+              // - newline (paragraph break)
+              // - colon followed by newline (heading-like)
+              // Minimum 30 chars prevents flushing tiny fragments
+              const isSentenceEnd = /[.!?]["')»]?\s+[A-Z]/.test(sentenceBuf)
+                || /[.!?]["')»]?\s*\n/.test(sentenceBuf)
+                || /:\s*\n/.test(sentenceBuf);
+              if (isSentenceEnd && sentenceBuf.trim().length > 30) {
+                // Split at the last sentence boundary and flush everything before it
+                const splitMatch = sentenceBuf.match(/^([\s\S]*[.!?]["')»]?\s)(\s*[A-Z][\s\S]*)$/);
+                if (splitMatch) {
+                  enqueueSpeak(splitMatch[1].trim(), backendUrl, 'general', 'aura');
+                  sentenceBuf = splitMatch[2];
+                } else {
+                  enqueueSpeak(sentenceBuf.trim(), backendUrl, 'general', 'aura');
+                  sentenceBuf = '';
+                }
               }
             }
           } catch {}

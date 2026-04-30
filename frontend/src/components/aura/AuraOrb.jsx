@@ -7,6 +7,7 @@ import { vertexShader, fragmentShader } from './shaders';
 
 const SPHERE_R = 2;
 const IS_MOBILE = typeof window !== 'undefined' && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+const IS_IOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
 const GEO_DETAIL = IS_MOBILE ? 24 : 64;
 
 function OrbMesh({ audioData, orbState }) {
@@ -114,7 +115,7 @@ function OrbMesh({ audioData, orbState }) {
 
 export default function AuraOrbCanvas({ audioData, orbState }) {
   const [contextLost, setContextLost] = useState(false);
-  const camZ = IS_MOBILE ? 8 : 6;
+  const camZ = IS_IOS ? 10 : IS_MOBILE ? 8 : 6;
 
   // Handle WebGL context loss gracefully
   const onCreated = ({ gl }) => {

@@ -1,4 +1,4 @@
-import { useRef, useMemo, useEffect } from 'react';
+import { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame, Canvas } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { vertexShader, fragmentShader } from './shaders';
 
 const SPHERE_R = 2;
+const IS_MOBILE = typeof window !== 'undefined' && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+const GEO_DETAIL = IS_MOBILE ? 24 : 64;
 
 function OrbMesh({ audioData, orbState }) {
   const meshRef = useRef(null);
@@ -104,32 +106,54 @@ function OrbMesh({ audioData, orbState }) {
 
   return (
     <mesh ref={meshRef}>
-      <icosahedronGeometry args={[SPHERE_R, 64]} />
+      <icosahedronGeometry args={[SPHERE_R, GEO_DETAIL]} />
       <shaderMaterial ref={materialRef} vertexShader={vertexShader} fragmentShader={fragmentShader} uniforms={uniforms} transparent />
     </mesh>
   );
 }
 
 export default function AuraOrbCanvas({ audioData, orbState }) {
-  // Pull camera back on narrow (portrait) screens so the sphere fits
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  const camZ = isMobile ? 8 : 6;
+  const [contextLost, setContextLost] = useState(false);
+  const camZ = IS_MOBILE ? 8 : 6;
+
+  // Handle WebGL context loss gracefully
+  const onCreated = ({ gl }) => {
+    const canvas = gl.domElement;
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      setContextLost(true);
+    });
+    canvas.addEventListener('webglcontextrestored', () => setContextLost(false));
+  };
+
+  if (contextLost) {
+    return (
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, rgba(184,115,51,0.15), transparent)', animation: 'edgeBreathe 4s ease-in-out infinite' }} />
+      </div>
+    );
+  }
+
   return (
     <Canvas
       camera={{ position: [0, 0, camZ], fov: 45, near: 0.1, far: 100 }}
       style={{ position: 'absolute', inset: 0, zIndex: 1 }}
-      gl={{ antialias: true, alpha: true }}
+      dpr={IS_MOBILE ? [1, 1.5] : [1, 2]}
+      gl={{ antialias: !IS_MOBILE, alpha: true, powerPreference: IS_MOBILE ? 'low-power' : 'high-performance' }}
+      onCreated={onCreated}
     >
       <ambientLight intensity={0.4} color="#FFFFFF" />
       <directionalLight position={[5, 5, 5]} intensity={1.5} color="#FFF5EB" />
-      <directionalLight position={[-3, 2, -3]} intensity={0.6} color="#E8F0FF" />
-      <directionalLight position={[0, -5, 2]} intensity={0.4} color="#B87333" />
+      {!IS_MOBILE && <directionalLight position={[-3, 2, -3]} intensity={0.6} color="#E8F0FF" />}
+      {!IS_MOBILE && <directionalLight position={[0, -5, 2]} intensity={0.4} color="#B87333" />}
       <pointLight position={[2, 3, 2]} intensity={0.8} color="#CD7F32" distance={20} />
       <OrbMesh audioData={audioData} orbState={orbState} />
-      <Environment preset="studio" />
-      <EffectComposer>
-        <Bloom intensity={0.4} luminanceThreshold={0.8} luminanceSmoothing={0.5} radius={0.5} />
-      </EffectComposer>
+      {!IS_MOBILE && <Environment preset="studio" />}
+      {!IS_MOBILE && (
+        <EffectComposer>
+          <Bloom intensity={0.4} luminanceThreshold={0.8} luminanceSmoothing={0.5} radius={0.5} />
+        </EffectComposer>
+      )}
     </Canvas>
   );
 }

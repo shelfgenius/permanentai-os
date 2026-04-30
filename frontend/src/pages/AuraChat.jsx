@@ -644,26 +644,37 @@ export default function AuraChat({ onBack }) {
     });
   };
 
-  const handleWidgetMouseDown = (e, widgetId) => {
+  const handleWidgetPointerDown = (e, widgetId) => {
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const pos = widgetPositions[widgetId] || { x: 0, y: 0 };
-    setDragState({ widgetId, offsetX: e.clientX - pos.x, offsetY: e.clientY - pos.y });
+    setDragState({ widgetId, offsetX: clientX - pos.x, offsetY: clientY - pos.y });
   };
 
   useEffect(() => {
     if (!dragState) return;
     const handleMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       setWidgetPositions(p => ({
         ...p,
         [dragState.widgetId]: {
-          x: Math.max(0, Math.min(window.innerWidth - 360, e.clientX - dragState.offsetX)),
-          y: Math.max(0, Math.min(window.innerHeight - 400, e.clientY - dragState.offsetY)),
+          x: Math.max(0, Math.min(window.innerWidth - 320, clientX - dragState.offsetX)),
+          y: Math.max(0, Math.min(window.innerHeight - 300, clientY - dragState.offsetY)),
         },
       }));
     };
     const handleUp = () => setDragState(null);
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleUp);
-    return () => { document.removeEventListener('mousemove', handleMove); document.removeEventListener('mouseup', handleUp); };
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    document.addEventListener('touchend', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+      document.removeEventListener('touchmove', handleMove);
+      document.removeEventListener('touchend', handleUp);
+    };
   }, [dragState]);
 
   return (
@@ -711,15 +722,17 @@ export default function AuraChat({ onBack }) {
       <AnimatePresence>
         {activeWidgets.includes('chat') && (
           <motion.div key="chat" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-            className="fixed z-[90] cursor-move" style={{ left: widgetPositions.chat?.x || window.innerWidth - 400, top: widgetPositions.chat?.y || 80 }}
-            onMouseDown={(e) => handleWidgetMouseDown(e, 'chat')}>
+            className="fixed z-[90] cursor-move aura-widget-panel" style={{ left: widgetPositions.chat?.x || Math.max(8, window.innerWidth - 380), top: widgetPositions.chat?.y || 80 }}
+            onMouseDown={(e) => handleWidgetPointerDown(e, 'chat')}
+            onTouchStart={(e) => handleWidgetPointerDown(e, 'chat')}>
             <ChatLogWidget messages={chatMessages} onClose={() => toggleWidget('chat')} />
           </motion.div>
         )}
         {activeWidgets.includes('music') && (
           <motion.div key="music" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-            className="fixed z-[90] cursor-move" style={{ left: widgetPositions.music?.x || window.innerWidth - 340, top: widgetPositions.music?.y || 80 }}
-            onMouseDown={(e) => handleWidgetMouseDown(e, 'music')}>
+            className="fixed z-[90] cursor-move aura-widget-panel" style={{ left: widgetPositions.music?.x || Math.max(8, window.innerWidth - 320), top: widgetPositions.music?.y || 80 }}
+            onMouseDown={(e) => handleWidgetPointerDown(e, 'music')}
+            onTouchStart={(e) => handleWidgetPointerDown(e, 'music')}>
             <AuraMusicWidget onClose={() => toggleWidget('music')} />
           </motion.div>
         )}
@@ -727,43 +740,45 @@ export default function AuraChat({ onBack }) {
 
       {/* Bottom Bar */}
       <div className="bottom-bar">
-        {/* Model Selector */}
-        <div className="relative" ref={dropdownRef}>
-          <button onClick={() => setShowModelDropdown(!showModelDropdown)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[rgba(184,115,51,0.25)] bg-white/50 text-sm text-[#B87333] hover:border-[rgba(184,115,51,0.6)] hover:bg-[rgba(184,115,51,0.06)] transition-all"
-            style={{ boxShadow: '0 0 12px rgba(184, 115, 51, 0.08)' }}>
-            <Sparkles size={14} />
-            <span className="font-medium">{AI_MODELS.find(m => m.value === selectedModel)?.label}</span>
-          </button>
-          {showModelDropdown && (
-            <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl border border-[rgba(184,115,51,0.15)] shadow-lg py-1 min-w-[160px] z-[200]">
-              {AI_MODELS.map(m => (
-                <button key={m.value} onClick={() => { setSelectedModel(m.value); setShowModelDropdown(false); }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-[rgba(184,115,51,0.06)] transition-colors ${selectedModel === m.value ? 'text-[#B87333] font-medium' : 'text-[#1A1A1A]'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Top row: model + input + send */}
+        <div className="bottom-bar-row">
+          <div className="relative" ref={dropdownRef}>
+            <button onClick={() => setShowModelDropdown(!showModelDropdown)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-[rgba(184,115,51,0.25)] bg-white/50 text-sm text-[#B87333] hover:border-[rgba(184,115,51,0.6)] hover:bg-[rgba(184,115,51,0.06)] transition-all flex-shrink-0"
+              style={{ boxShadow: '0 0 12px rgba(184, 115, 51, 0.08)' }}>
+              <Sparkles size={14} />
+              <span className="font-medium hidden sm:inline">{AI_MODELS.find(m => m.value === selectedModel)?.label}</span>
+            </button>
+            {showModelDropdown && (
+              <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl border border-[rgba(184,115,51,0.15)] shadow-lg py-1 min-w-[160px] z-[200]">
+                {AI_MODELS.map(m => (
+                  <button key={m.value} onClick={() => { setSelectedModel(m.value); setShowModelDropdown(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-[rgba(184,115,51,0.06)] transition-colors ${selectedModel === m.value ? 'text-[#B87333] font-medium' : 'text-[#1A1A1A]'}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Input */}
-        <div className="flex-1 flex items-center min-w-0">
-          <input ref={inputRef} type="text" value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask AURA anything..."
-            disabled={isProcessing}
-            className="w-full bg-transparent text-[15px] text-[#1A1A1A] placeholder:text-[#A0A0A0] outline-none border-b border-transparent focus:border-[rgba(184,115,51,0.3)] transition-colors pb-0.5"
-          />
-        </div>
+          <div className="flex-1 flex items-center min-w-0">
+            <input ref={inputRef} type="text" value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask AURA anything..."
+              disabled={isProcessing}
+              className="w-full bg-transparent text-[15px] text-[#1A1A1A] placeholder:text-[#A0A0A0] outline-none border-b border-transparent focus:border-[rgba(184,115,51,0.3)] transition-colors pb-0.5"
+            />
+          </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
           <button onClick={handleSend} disabled={!inputValue.trim() || isProcessing}
-            className="bronze-glow-btn w-9 h-9" style={{ opacity: inputValue.trim() ? 1 : 0.4 }}>
+            className="bronze-glow-btn send-btn" style={{ opacity: inputValue.trim() ? 1 : 0.4 }}>
             <Send size={16} />
           </button>
+        </div>
+
+        {/* Bottom row: action buttons (visible below input on mobile, inline on desktop) */}
+        <div className="bottom-bar-actions">
           <button onClick={handleDeepResearch} className="bronze-glow-btn" title="Deep Research" style={{ opacity: inputValue.trim() ? 1 : 0.4 }}>
             <Search size={16} />
           </button>

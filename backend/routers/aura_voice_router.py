@@ -1,15 +1,20 @@
-"""AURA Voice Pipeline — Local NIM containers (Parakeet STT + Magpie TTS Zeroshot).
+"""AURA Voice Pipeline — Multi-provider TTS with Irish voice cloning.
 
-Pipeline:  mic WAV → Parakeet (~200-400ms) → Nemotron Omni (~500-1500ms) → Magpie TTS (~300-800ms)
+Pipeline:  mic WAV → Parakeet (~200-400ms) → Nemotron Omni (~500-1500ms) → TTS (~300-1500ms)
+
+TTS Fallback Chain:
+  1. Local Magpie TTS Zeroshot (if NVIDIA GPU available)
+  2. XTTS-v2 via HF Space / Colab (free, Irish voice cloning)
+  3. Cloud Magpie Multilingual (generic voice, uses API credits)
 
 Endpoints:
   POST /aura/voice/stt          — Audio → transcript (local Parakeet)
-  POST /aura/voice/tts          — Text  → audio WAV  (local Magpie, Irish female voice)
+  POST /aura/voice/tts          — Text  → audio WAV  (Irish female voice)
   POST /aura/voice/tts/builtin  — Text  → audio WAV  (built-in voice, no reference)
-  GET  /aura/voice/health       — Health check for both containers
+  GET  /aura/voice/health       — Health check for all providers
   GET  /aura/voice/voices       — List available built-in voices
 
-Falls back gracefully to cloud NIM endpoints if local containers are unavailable.
+Falls back gracefully through the chain if any provider is unavailable.
 """
 from __future__ import annotations
 
@@ -29,6 +34,9 @@ router = APIRouter(prefix="/aura/voice", tags=["aura-voice"])
 # ── Local NIM container endpoints ─────────────────────────────────
 PARAKEET_URL = os.getenv("AURA_PARAKEET_URL", "http://localhost:9200")
 MAGPIE_URL   = os.getenv("AURA_MAGPIE_URL", "http://localhost:9300")
+
+# ── XTTS-v2 HF Space / Colab endpoint (free voice cloning) ───────
+XTTS_HF_URL  = os.getenv("AURA_XTTS_URL", "")  # e.g. https://shelfgenius-aura-voice.hf.space
 
 # ── Cloud NIM fallback endpoints ──────────────────────────────────
 NIM_BASE     = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
@@ -195,7 +203,38 @@ async def aura_tts(req: TTSRequest):
     except Exception as e:
         logger.info("Local Magpie unavailable (%s), falling back to cloud", e)
 
-    # 2. Fallback: cloud Magpie TTS Multilingual
+    # 2. Fallback: XTTS-v2 via HF Space / Colab (free, Irish voice cloning)
+    if XTTS_HF_URL:
+        try:
+            async with httpx.AsyncClient(timeout=60) as c:
+                r = await c.post(
+                    f"{XTTS_HF_URL}/api/synthesize",
+                    json={"data": [req.text, req.language[:2]]},
+                )
+            if r.status_code == 200:
+                result = r.json()
+                # Gradio returns {"data": ["file_url"]} — fetch the audio
+                audio_url = result.get("data", [None])[0]
+                if audio_url:
+                    async with httpx.AsyncClient(timeout=30) as c:
+                        audio_r = await c.get(
+                            audio_url if audio_url.startswith("http")
+                            else f"{XTTS_HF_URL}/file={audio_url}"
+                        )
+                    if audio_r.status_code == 200 and len(audio_r.content) > 100:
+                        return Response(
+                            content=audio_r.content,
+                            media_type="audio/wav",
+                            headers={
+                                "X-TTS-Source": "xtts-v2-hfspace",
+                                "X-TTS-Voice": "irish-xtts-clone",
+                            },
+                        )
+            logger.warning("XTTS HF Space error: %s", r.status_code)
+        except Exception as e:
+            logger.info("XTTS HF Space unavailable (%s), falling back to cloud Magpie", e)
+
+    # 3. Fallback: cloud Magpie TTS Multilingual (generic voice)
     if KEY_TTS:
         try:
             async with httpx.AsyncClient(timeout=30) as c:
@@ -225,7 +264,7 @@ async def aura_tts(req: TTSRequest):
         except Exception as e:
             logger.warning("Cloud Magpie also failed: %s", e)
 
-    raise HTTPException(503, "TTS unavailable — both local and cloud Magpie failed")
+    raise HTTPException(503, "TTS unavailable — all providers failed (Magpie local, XTTS HF, cloud Magpie)")
 
 
 @router.post("/tts/builtin")
@@ -244,8 +283,21 @@ async def voice_health():
     magpie_ok = await _check_container(MAGPIE_URL)
     irish_wav = _get_irish_voice_bytes()
 
+    xtts_ok = False
+    if XTTS_HF_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5) as c:
+                r = await c.post(
+                    f"{XTTS_HF_URL}/api/health",
+                    json={"data": []},
+                )
+                xtts_ok = r.status_code == 200
+        except Exception:
+            pass
+
+    any_tts = magpie_ok or xtts_ok or bool(KEY_TTS)
     return {
-        "pipeline": "ready" if (parakeet_ok and magpie_ok) else "degraded",
+        "pipeline": "ready" if (parakeet_ok and any_tts) else "degraded",
         "parakeet": {
             "status": "online" if parakeet_ok else "offline",
             "url": PARAKEET_URL,
@@ -254,7 +306,13 @@ async def voice_health():
         "magpie": {
             "status": "online" if magpie_ok else "offline",
             "url": MAGPIE_URL,
-            "fallback": "cloud" if KEY_TTS else "none",
+            "fallback": "xtts-hfspace" if XTTS_HF_URL else ("cloud" if KEY_TTS else "none"),
+        },
+        "xtts_hfspace": {
+            "status": "online" if xtts_ok else ("not configured" if not XTTS_HF_URL else "offline"),
+            "url": XTTS_HF_URL or "not set",
+            "model": "xtts_v2",
+            "voice_cloning": True,
         },
         "voice": {
             "irish_reference": "loaded" if irish_wav else "not found",

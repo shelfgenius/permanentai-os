@@ -27,6 +27,92 @@ const OVERLAYS = [
   { value: 'temperature', label: 'Temperature' },
 ];
 
+// City coords for direct Open-Meteo fallback (when backend is unreachable)
+const CITY_COORDS = {
+  constanta: { lat: 44.1598, lon: 28.6348, tz: 'Europe/Bucharest', label: 'Constanța, RO' },
+  mangalia:  { lat: 43.8,    lon: 28.5833, tz: 'Europe/Bucharest', label: 'Mangalia, RO' },
+  medgidia:  { lat: 44.25,   lon: 28.2833, tz: 'Europe/Bucharest', label: 'Medgidia, RO' },
+  eforie:    { lat: 44.0667, lon: 28.65,   tz: 'Europe/Bucharest', label: 'Eforie, RO' },
+};
+
+const WMO_MAP = {
+  0:'Clear',1:'Mostly Clear',2:'Partly Cloudy',3:'Overcast',
+  45:'Foggy',48:'Foggy',51:'Drizzle',53:'Drizzle',55:'Drizzle',
+  61:'Rain',63:'Rain',65:'Rain',80:'Rain Showers',81:'Rain Showers',
+  71:'Snow',73:'Snow',75:'Snow',95:'Thunderstorm',96:'Thunderstorm',99:'Thunderstorm',
+};
+const WMO_COND = (code) => {
+  if ([0,1].includes(code)) return 'sunny';
+  if (code===2) return 'partly-cloudy';
+  if (code===3) return 'cloudy';
+  if ([45,48].includes(code)) return 'cloudy';
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return 'rain';
+  if ([71,73,75,77,85,86].includes(code)) return 'snow';
+  if ([95,96,99].includes(code)) return 'storm';
+  return 'cloudy';
+};
+
+// Direct Open-Meteo call from browser — fallback when backend is down
+async function clientSideFetch(cityKey) {
+  const city = CITY_COORDS[cityKey];
+  if (!city) return null;
+  try {
+    const params = new URLSearchParams({
+      latitude: city.lat, longitude: city.lon, timezone: city.tz,
+      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,is_day',
+      hourly: 'temperature_2m,weather_code,is_day,visibility',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max',
+      temperature_unit: 'celsius', wind_speed_unit: 'kmh', forecast_days: 7,
+    });
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const cur = d.current, hr = d.hourly, dy = d.daily;
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    const windDir = dirs[Math.round(cur.wind_direction_10m / 22.5) % 16];
+    const fmtH = (h) => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h-12} PM`;
+    const vis = (hr.visibility?.[0] || 10000) / 1000;
+    const uv = dy.uv_index_max?.[0] || 0;
+    const dn = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const ds = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    return {
+      city: { key: cityKey, label: city.label, country: 'RO', timezone: city.tz },
+      current: {
+        temp: Math.round(cur.temperature_2m), condition: WMO_COND(cur.weather_code),
+        conditionText: WMO_MAP[cur.weather_code] || 'Unknown',
+        high: Math.round(dy.temperature_2m_max[0]), low: Math.round(dy.temperature_2m_min[0]),
+      },
+      hourly: hr.time.slice(0,24).map((t,i) => ({
+        hour: i, time: fmtH(parseInt(t.split('T')[1])),
+        temp: Math.round(hr.temperature_2m[i]), condition: WMO_COND(hr.weather_code[i]),
+      })),
+      daily: dy.time.slice(0,7).map((t,i) => {
+        const dt = new Date(t);
+        return { day: dn[dt.getDay()], dayShort: ds[dt.getDay()], low: Math.round(dy.temperature_2m_min[i]), high: Math.round(dy.temperature_2m_max[i]), condition: WMO_COND(dy.weather_code[i]) };
+      }),
+      details: {
+        feelsLike: Math.round(cur.apparent_temperature), humidity: Math.round(cur.relative_humidity_2m),
+        dewPoint: Math.round(cur.temperature_2m - (100 - cur.relative_humidity_2m) / 5),
+        visibility: Math.round(vis * 10) / 10, visibilityUnit: 'km',
+        visibilityText: vis >= 10 ? 'Excellent' : vis >= 5 ? 'Good' : vis >= 2 ? 'Moderate' : 'Poor',
+        pressure: Math.round(cur.surface_pressure), pressureUnit: 'hPa', pressureTrend: 'Steady',
+        windSpeed: Math.round(cur.wind_speed_10m), windUnit: 'km/h', windDirection: windDir,
+        uvIndex: Math.round(uv), uvText: uv <= 2 ? 'Low' : uv <= 5 ? 'Moderate' : uv <= 7 ? 'High' : uv <= 10 ? 'Very High' : 'Extreme',
+      },
+      sun: (() => {
+        const sr = dy.sunrise?.[0]?.split('T')[1] || '06:00', ss = dy.sunset?.[0]?.split('T')[1] || '18:00';
+        const [srH, srM] = sr.split(':').map(Number), [ssH, ssM] = ss.split(':').map(Number);
+        return {
+          sunrise: srH < 12 ? `${srH || 12}:${String(srM).padStart(2,'0')} AM` : `${srH % 12 || 12}:${String(srM).padStart(2,'0')} PM`,
+          sunset: ssH < 12 ? `${ssH || 12}:${String(ssM).padStart(2,'0')} AM` : `${ssH % 12 || 12}:${String(ssM).padStart(2,'0')} PM`,
+          sunriseHour: srH, sunriseMin: srM, sunsetHour: ssH, sunsetMin: ssM,
+        };
+      })(),
+      _source: 'client-direct',
+    };
+  } catch (e) { console.warn('Client-side weather fetch failed:', e); return null; }
+}
+
 // ── Hooks ────────────────────────────────────────────────
 function useCountUp(target, duration = 1000, decimals = 0) {
   const [value, setValue] = useState(0);
@@ -161,7 +247,7 @@ function StatsRow({ weather }) {
 }
 
 // ── SunPanel (replaces AccuracyPanel) ─────────────────────
-function SunPanel({ weather }) {
+function SunPanel({ weather, aiSummary }) {
   const sun = weather?.sun;
   const cur = weather?.current;
   const hourlyTemps = useMemo(() => {
@@ -194,6 +280,17 @@ function SunPanel({ weather }) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(251,146,60,0.7)" strokeWidth="2"><path d="M17 18a5 5 0 0 0-10 0M12 9V2M4.22 10.22l1.42 1.42M1 18h2M21 18h2M18.36 11.64l1.42-1.42" /></svg>
             <div><div className="text-[9px] text-white/30">Sunset</div><div className="text-xs text-white">{sun.sunset}</div></div>
           </div>
+        </div>
+      )}
+      {aiSummary && (
+        <div className="mt-3 pt-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <div className="w-3 h-3 rounded-sm bg-green-500/20 flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            </div>
+            <span className="text-[9px] text-green-400/70 font-medium tracking-wider uppercase">NVIDIA FourCastNet AI</span>
+          </div>
+          <p className="text-[11px] text-white/50 leading-relaxed">{aiSummary}</p>
         </div>
       )}
     </motion.div>
@@ -292,7 +389,7 @@ function DailyForecast({ weather }) {
 }
 
 // ── Sidebar (desktop) ────────────────────────────────────
-function Sidebar({ weather, allWeather, selectedStation, onSelectStation }) {
+function Sidebar({ weather, allWeather, selectedStation, onSelectStation, aiSummary }) {
   const activeCount = STATIONS.filter(s => allWeather[s.id]?.current).length;
   const loadingCount = STATIONS.length - activeCount;
   return (
@@ -312,7 +409,7 @@ function Sidebar({ weather, allWeather, selectedStation, onSelectStation }) {
           <span className="text-lg font-light text-white">{loadingCount}</span>
         </div>
       </div>
-      <SunPanel weather={weather} />
+      <SunPanel weather={weather} aiSummary={aiSummary} />
       <div className="grid grid-cols-2 gap-2">
         {STATIONS.map((s, i) => <LocationCard key={s.id} station={s} stationWeather={allWeather[s.id]} index={i}
           selected={selectedStation === s.id} onSelect={onSelectStation} />)}
@@ -783,30 +880,40 @@ export default function SkyHub({ onBack }) {
   const [error, setError] = useState('');
   const mapInstRef = useRef(null);
 
-  // Fetch weather for a single city key
+  const [aiSummary, setAiSummary] = useState('');
+
+  // Fetch weather: try backend first, then client-side Open-Meteo fallback
   const fetchSingle = useCallback(async (key) => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const r = await fetch(`${backendUrl}/sky/weather/${key}`);
-        if (r.status === 502 || r.status === 503) {
-          if (attempt === 0) { await new Promise(res => setTimeout(res, 3000)); continue; }
-          return null;
-        }
-        if (!r.ok) return null;
-        return await r.json();
-      } catch { if (attempt === 0) await new Promise(res => setTimeout(res, 3000)); }
-    }
-    return null;
+    // 1. Try backend
+    try {
+      const r = await fetch(`${backendUrl}/sky/weather/${key}`, { signal: AbortSignal.timeout(12000) });
+      if (r.ok) return await r.json();
+    } catch { /* backend unreachable — fall through */ }
+    // 2. Client-side Open-Meteo fallback
+    console.log(`Backend unavailable for ${key}, using direct Open-Meteo`);
+    return await clientSideFetch(key);
   }, [backendUrl]);
 
   // Fetch primary city weather
   const fetchWeather = useCallback(async (key) => {
     setLoading(true); setError('');
     const data = await fetchSingle(key);
-    if (data) setWeather(data);
-    else setError('Failed to load weather — check backend connection.');
+    if (data) {
+      setWeather(data);
+      if (data._source === 'client-direct') setError('');
+    } else {
+      setError('Weather data unavailable — please try again.');
+    }
     setLoading(false);
   }, [fetchSingle]);
+
+  // Fetch AI summary from NVIDIA
+  const fetchAiSummary = useCallback(async (key) => {
+    try {
+      const r = await fetch(`${backendUrl}/sky/summary/${key}`, { signal: AbortSignal.timeout(15000) });
+      if (r.ok) { const d = await r.json(); setAiSummary(d.summary || ''); }
+    } catch { /* AI summary is optional */ }
+  }, [backendUrl]);
 
   // Fetch all station weather in parallel
   const fetchAllStations = useCallback(async () => {
@@ -818,20 +925,21 @@ export default function SkyHub({ onBack }) {
     setAllWeather(results);
   }, [fetchSingle]);
 
-  // On app start: fetch primary + all stations
+  // On app start: fetch primary + all stations + AI summary
   useEffect(() => {
     if (phase === 'app') {
       fetchWeather(cityKey);
       fetchAllStations();
+      fetchAiSummary(cityKey);
     }
-  }, [phase, cityKey, fetchWeather, fetchAllStations]);
+  }, [phase, cityKey, fetchWeather, fetchAllStations, fetchAiSummary]);
 
   // Refresh all data every 5 minutes
   useEffect(() => {
     if (phase !== 'app') return;
-    const iv = setInterval(() => { fetchWeather(cityKey); fetchAllStations(); }, 300000);
+    const iv = setInterval(() => { fetchWeather(cityKey); fetchAllStations(); fetchAiSummary(cityKey); }, 300000);
     return () => clearInterval(iv);
-  }, [phase, cityKey, fetchWeather, fetchAllStations]);
+  }, [phase, cityKey, fetchWeather, fetchAllStations, fetchAiSummary]);
 
   // When selecting a station, update primary weather + center map
   const handleSelectStation = useCallback((stationId) => {
@@ -847,7 +955,8 @@ export default function SkyHub({ onBack }) {
     } else {
       fetchWeather(stationId);
     }
-  }, [allWeather, fetchWeather]);
+    fetchAiSummary(stationId);
+  }, [allWeather, fetchWeather, fetchAiSummary]);
 
   if (phase === 'intro') return <AnimatePresence><SkyIntro onComplete={() => setPhase('app')} /></AnimatePresence>;
 
@@ -877,7 +986,7 @@ export default function SkyHub({ onBack }) {
       <TopNav activeTab={activeTab} onTabChange={setActiveTab} onBack={onBack} />
 
       <div className="flex flex-1 gap-3 p-3 pt-2 overflow-hidden">
-        <Sidebar weather={weather} allWeather={allWeather} selectedStation={selectedStation} onSelectStation={handleSelectStation} />
+        <Sidebar weather={weather} allWeather={allWeather} selectedStation={selectedStation} onSelectStation={handleSelectStation} aiSummary={aiSummary} />
 
         <div className="flex-1 relative min-w-0">
           {loading && !weather && (

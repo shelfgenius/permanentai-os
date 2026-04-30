@@ -1,16 +1,41 @@
-"""Sky Weather — real-time weather via Open-Meteo + NVIDIA AI summaries."""
+"""Sky Weather — real-time weather via Open-Meteo + NVIDIA AI summaries.
+
+Reliability features:
+- In-memory TTL cache (10 min) — avoids hammering Open-Meteo on parallel requests
+- Returns stale cache on API failure instead of 502
+- Shared httpx client for connection reuse
+"""
 from __future__ import annotations
-import os, logging
+import os, logging, time
 from datetime import datetime
 import httpx
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple
 
 logger = logging.getLogger("sky_router")
 router = APIRouter(prefix="/sky", tags=["sky"])
 
 NIM_BASE = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 KEY_WEATHER = os.getenv("NVIDIA_API_KEY_WEATHER", "")
+
+# ── In-memory cache ──────────────────────────────────────
+CACHE_TTL = 600  # 10 minutes
+_cache: Dict[str, Tuple[float, Any]] = {}  # key -> (timestamp, data)
+
+def _cache_get(key: str) -> Any | None:
+    """Return cached data if still fresh, else None."""
+    entry = _cache.get(key)
+    if entry and (time.time() - entry[0]) < CACHE_TTL:
+        return entry[1]
+    return None
+
+def _cache_get_stale(key: str) -> Any | None:
+    """Return cached data even if expired (used as fallback on API failure)."""
+    entry = _cache.get(key)
+    return entry[1] if entry else None
+
+def _cache_set(key: str, data: Any):
+    _cache[key] = (time.time(), data)
 
 CITIES = {
     "san-francisco": {"label": "San Francisco, CA", "country": "US", "lat": 37.7749, "lon": -122.4194, "tz": "America/Los_Angeles"},
@@ -67,6 +92,13 @@ async def get_weather(city_key: str):
     if not city:
         raise HTTPException(404, f"Unknown city: {city_key}")
 
+    # ── Check cache first ─────────────────────────────────
+    cached = _cache_get(f"weather:{city_key}")
+    if cached:
+        logger.debug("Cache hit for %s", city_key)
+        return cached
+
+    # ── Fetch from Open-Meteo ─────────────────────────────
     params = {
         "latitude": city["lat"], "longitude": city["lon"], "timezone": city["tz"],
         "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,is_day",
@@ -74,24 +106,27 @@ async def get_weather(city_key: str):
         "daily": "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max",
         "temperature_unit": "celsius", "wind_speed_unit": "kmh", "forecast_days": 7,
     }
-    # Try primary and fallback Open-Meteo endpoints
-    urls = ["https://api.open-meteo.com/v1/forecast", "https://archive-api.open-meteo.com/v1/forecast"]
     data = None
     last_err = ""
-    for url in urls:
-        try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
-                r = await c.get(url, params=params)
-            if r.status_code == 200:
-                data = r.json()
-                break
-            last_err = f"{url} returned HTTP {r.status_code}: {r.text[:300]}"
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+            r = await c.get("https://api.open-meteo.com/v1/forecast", params=params)
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            last_err = f"Open-Meteo HTTP {r.status_code}: {r.text[:200]}"
             logger.warning("Open-Meteo error: %s", last_err)
-        except Exception as e:
-            last_err = f"{url} failed: {e}"
-            logger.warning("Open-Meteo error: %s", last_err)
+    except Exception as e:
+        last_err = f"Open-Meteo failed: {e}"
+        logger.warning("Open-Meteo error: %s", last_err)
+
+    # ── Fallback to stale cache if API failed ─────────────
     if data is None:
-        raise HTTPException(502, f"Weather data unavailable — {last_err}")
+        stale = _cache_get_stale(f"weather:{city_key}")
+        if stale:
+            logger.info("Returning stale cache for %s (API failed: %s)", city_key, last_err)
+            return stale
+        raise HTTPException(503, f"Weather data temporarily unavailable — {last_err}")
 
     cur = data["current"]; hourly = data["hourly"]; daily = data["daily"]
     is_night = cur.get("is_day", 1) == 0
@@ -146,7 +181,7 @@ async def get_weather(city_key: str):
         d_cond, _ = _wmo(daily["weather_code"][i])
         daily_out.append({"day": dn[dt.weekday()], "dayShort": ds[dt.weekday()], "low": round(daily["temperature_2m_min"][i]), "high": round(daily["temperature_2m_max"][i]), "condition": d_cond})
 
-    return {
+    result = {
         "city": {"key": city_key, "label": city["label"], "country": city["country"], "timezone": city["tz"]},
         "current": {
             "temp": round(cur["temperature_2m"]), "condition": cond_key, "conditionText": cond_text,
@@ -168,17 +203,21 @@ async def get_weather(city_key: str):
             "sunriseHour": sr_h, "sunriseMin": sr_m, "sunsetHour": ss_h, "sunsetMin": ss_m,
         },
     }
+    _cache_set(f"weather:{city_key}", result)
+    return result
 
 
 @router.get("/summary/{city_key}")
 async def get_ai_summary(city_key: str):
     """Use NVIDIA NIM LLM to generate a weather insight summary."""
-    if not KEY_WEATHER:
-        return {"summary": "AI summary unavailable — no API key configured."}
-
     city = CITIES.get(city_key)
     if not city:
         raise HTTPException(404, f"Unknown city: {city_key}")
+
+    # Check cache
+    cached = _cache_get(f"summary:{city_key}")
+    if cached:
+        return cached
 
     # Fetch weather first
     try:
@@ -188,25 +227,42 @@ async def get_ai_summary(city_key: str):
 
     cur = weather["current"]
     det = weather["details"]
+    fallback = f"{cur['conditionText']} with a high of {cur['high']}°C and low of {cur['low']}°C."
+
+    if not KEY_WEATHER:
+        result = {"summary": fallback}
+        _cache_set(f"summary:{city_key}", result)
+        return result
+
     prompt = (
-        f"Give a brief 2-sentence weather summary for {city['label']}. "
-        f"Current: {cur['temp']}°C, {cur['conditionText']}, feels like {det['feelsLike']}°C, "
+        f"You are a weather analyst AI powered by NVIDIA FourCastNet. "
+        f"Give a brief 2-sentence weather summary and recommendation for {city['label']}. "
+        f"Current: {cur['temp']}°C ({cur['conditionText']}), feels like {det['feelsLike']}°C, "
         f"wind {det['windSpeed']} km/h {det['windDirection']}, humidity {det['humidity']}%, "
-        f"UV index {det['uvIndex']} ({det['uvText']}). "
+        f"UV index {det['uvIndex']} ({det['uvText']}), pressure {det['pressure']} hPa. "
         f"High {cur['high']}°C, low {cur['low']}°C. Be concise and helpful."
     )
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post(
                 f"{NIM_BASE}/chat/completions",
                 headers={"Authorization": f"Bearer {KEY_WEATHER}", "Content-Type": "application/json"},
-                json={"model": "meta/llama-3.1-8b-instruct", "messages": [{"role": "user", "content": prompt}], "max_tokens": 120, "temperature": 0.7},
+                json={
+                    "model": "meta/llama-3.1-8b-instruct",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 150, "temperature": 0.7,
+                },
             )
         if r.status_code == 200:
-            return {"summary": r.json()["choices"][0]["message"]["content"].strip()}
-        logger.warning("NVIDIA summary error %s", r.status_code)
-        return {"summary": f"{cur['conditionText']} with a high of {cur['high']}°F and low of {cur['low']}°F."}
+            text = r.json()["choices"][0]["message"]["content"].strip()
+            result = {"summary": text}
+            _cache_set(f"summary:{city_key}", result)
+            return result
+        logger.warning("NVIDIA summary error %s: %s", r.status_code, r.text[:200])
     except Exception as e:
         logger.warning("NVIDIA summary failed: %s", e)
-        return {"summary": f"{cur['conditionText']} with a high of {cur['high']}°F and low of {cur['low']}°F."}
+
+    result = {"summary": fallback}
+    _cache_set(f"summary:{city_key}", result)
+    return result

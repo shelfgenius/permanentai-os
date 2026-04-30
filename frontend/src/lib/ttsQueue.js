@@ -83,42 +83,82 @@ async function _processNext() {
   const base = backendUrl.replace(/\/+$/, '');
 
   try {
-    // ── Try streaming endpoint first ────────────────────────
     let streamed = false;
-    try {
-      const res = await fetch(`${base}/tts/stream-chunks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, domain: domain || 'general', first_buffer_words: 4 }),
-      });
-      if (res.ok && res.body) {
-        const reader = res.body.getReader();
-        let buffer = new Uint8Array(0);
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          // Append new data to buffer
-          const tmp = new Uint8Array(buffer.length + value.length);
-          tmp.set(buffer);
-          tmp.set(value, buffer.length);
-          buffer = tmp;
-
-          // Parse length-prefixed chunks: [4 bytes len][audio bytes]
-          while (buffer.length >= 4) {
-            const len = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
-            if (buffer.length < 4 + len) break;  // wait for more data
-            const chunk = buffer.slice(4, 4 + len).buffer;
-            buffer = buffer.slice(4 + len);
-            _enqueueAudioChunk(chunk);
+    // ── Priority 1: Magpie TTS Zeroshot (local NIM container) ──
+    // Irish female voice via zero-shot cloning or built-in Female-Calm
+    if (!streamed) {
+      try {
+        const res = await fetch(`${base}/aura/voice/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, language: 'en-US', use_reference: true }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 100) {
+            _enqueueAudioChunk(await blob.arrayBuffer());
             streamed = true;
           }
         }
-      }
-    } catch (_) { /* streaming failed, try fallback */ }
+      } catch (_) { /* local Magpie unavailable, continue chain */ }
+    }
 
-    // ── Fallback: full audio via /xtts/speak → /tts/speak ───
+    // ── Priority 2: NVIDIA cloud Magpie TTS Multilingual ──
+    if (!streamed) {
+      try {
+        const res = await fetch(`${base}/nvidia/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice: 'multilingual_female', language: 'en' }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 100) {
+            _enqueueAudioChunk(await blob.arrayBuffer());
+            streamed = true;
+          }
+        }
+      } catch (_) { /* cloud TTS unavailable, continue chain */ }
+    }
+
+    // ── Priority 3: Streaming TTS (Kokoro/legacy) ────────────
+    if (!streamed) {
+      try {
+        const res = await fetch(`${base}/tts/stream-chunks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, domain: domain || 'general', first_buffer_words: 4 }),
+        });
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          let buffer = new Uint8Array(0);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const tmp = new Uint8Array(buffer.length + value.length);
+            tmp.set(buffer);
+            tmp.set(value, buffer.length);
+            buffer = tmp;
+
+            while (buffer.length >= 4) {
+              const len = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+              if (buffer.length < 4 + len) break;
+              const chunk = buffer.slice(4, 4 + len).buffer;
+              buffer = buffer.slice(4 + len);
+              _enqueueAudioChunk(chunk);
+              streamed = true;
+            }
+          }
+        }
+      } catch (_) { /* streaming failed, try fallback */ }
+    }
+
+    // ── Priority 4: XTTS / legacy TTS ────────────────────────
     if (!streamed) {
       const xttsPayload = { text, agent: agent || 'aura', language: 'en' };
       const legacyPayload = { text, domain: domain || 'general' };
@@ -149,12 +189,11 @@ async function _processNext() {
       }
     }
 
-    // If nothing was streamed from any backend endpoint, use browser TTS
+    // ── Priority 5: Browser speechSynthesis (last resort) ────
     if (!streamed) {
       _browserSpeakFallback(text);
     }
   } catch (_) {
-    // All backend TTS methods failed — use browser speechSynthesis as last resort
     _browserSpeakFallback(text);
   } finally {
     _processing = false;

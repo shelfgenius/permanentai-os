@@ -35,12 +35,26 @@ function useVoice(backendUrl) {
 
   const sendToParakeet = useCallback(async (blob) => {
     if (!backendUrl) return '';
+    // 1. Try local Parakeet NIM (faster, no network hop)
     try {
-      const formData = new FormData();
-      formData.append('audio', blob, 'recording.wav');
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.wav');
+      const res = await fetch(`${backendUrl}/aura/voice/stt`, {
+        method: 'POST', body: fd,
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.text || '';
+        if (text.trim()) { setTranscript(text); return text; }
+      }
+    } catch { /* local unavailable, try cloud */ }
+    // 2. Fallback: cloud Parakeet
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.wav');
       const res = await fetch(`${backendUrl}/nvidia/asr`, {
-        method: 'POST',
-        body: formData,
+        method: 'POST', body: fd,
       });
       if (!res.ok) return '';
       const data = await res.json();

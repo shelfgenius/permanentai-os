@@ -47,6 +47,7 @@ from routers.auth_router import router as auth_router
 from routers.blender_router import router as blender_router
 from routers.sky_router import router as sky_router
 from routers.slide_router import router as slide_router
+from routers.aura_voice_router import router as aura_voice_router
 
 # Optional routers — may fail on cloud if heavy deps (torch, chromadb) are missing
 _optional_routers = {}
@@ -128,6 +129,7 @@ app.include_router(auth_router)
 app.include_router(blender_router)
 app.include_router(sky_router)
 app.include_router(slide_router)
+app.include_router(aura_voice_router)
 
 # Optional routers (loaded only if deps available)
 for name, r in _optional_routers.items():

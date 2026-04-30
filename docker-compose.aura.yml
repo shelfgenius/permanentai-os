@@ -1,0 +1,101 @@
+# ═══════════════════════════════════════════════════════════════════
+#  AURA Voice Pipeline — Local NVIDIA NIM Containers
+#
+#  Parakeet CTC 1.1b  (STT)  →  port 9200 HTTP / 50051 gRPC
+#  Magpie TTS Zeroshot (TTS) →  port 9300 HTTP / 50052 gRPC
+#
+#  Requirements:
+#    - Docker + NVIDIA Container Toolkit + GPU (Ampere+ recommended)
+#    - NGC_API_KEY in .env (line 61)
+#
+#  First-run downloads:
+#    Parakeet CTC 1.1b   ~5 GB
+#    Magpie TTS Zeroshot  ~8 GB
+#
+#  Usage:
+#    docker compose -f docker-compose.aura.yml up -d
+#    docker compose -f docker-compose.aura.yml logs -f
+#    curl http://localhost:9200/v1/health/ready   # Parakeet ready?
+#    curl http://localhost:9300/v1/health/ready   # Magpie ready?
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Parakeet CTC 1.1b — Speech-to-Text ─────────────────────────
+  # Streaming + offline ASR, 16kHz mono WAV/FLAC/OPUS input
+  # HTTP endpoint: POST :9200/v1/audio/transcriptions
+  aura-parakeet:
+    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:latest
+    container_name: aura-parakeet
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_HTTP_API_PORT: 9200
+      NIM_GRPC_API_PORT: 50051
+      NIM_TAGS_SELECTOR: "name=parakeet-1-1b-ctc-en-us,mode=str,model_type=prebuilt"
+    ports:
+      - "9200:9200"   # HTTP — aura_voice_router.py calls this
+      - "50051:50051"  # gRPC (available for streaming ASR)
+    shm_size: 8gb
+    ulimits:
+      nofile: { soft: 2048, hard: 2048 }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    volumes:
+      - nim_cache_parakeet:/opt/nim/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/v1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s  # model loading takes up to 3 min first run
+
+  # ── Magpie TTS Zeroshot — Text-to-Speech ───────────────────────
+  # Streaming TTS with built-in voices + zero-shot voice cloning
+  # HTTP endpoint: POST :9300/v1/audio/synthesize
+  #
+  # Voice strategy:
+  #   1. Default: built-in Magpie-ZeroShot.Female-Calm
+  #   2. Irish accent: mount irish_female.wav for zero-shot cloning
+  #      Record a 5-10s clear Irish female voice sample (16-bit mono, 22.05kHz+)
+  #      Place it at ./voices/aura_irish.wav and uncomment the volume mount below
+  aura-magpie:
+    image: nvcr.io/nim/nvidia/magpie-tts-zeroshot:latest
+    container_name: aura-magpie
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_HTTP_API_PORT: 9300
+      NIM_GRPC_API_PORT: 50052
+    ports:
+      - "9300:9300"   # HTTP — aura_voice_router.py calls this
+      - "50052:50052"  # gRPC
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    volumes:
+      - nim_cache_magpie:/opt/nim/.cache
+      # Mount your Irish voice reference for zero-shot cloning:
+      - ./voices/aura_irish.wav:/app/aura_irish.wav:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9300/v1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s  # TTS model loading can take up to 5 min
+
+volumes:
+  nim_cache_parakeet:
+  nim_cache_magpie:

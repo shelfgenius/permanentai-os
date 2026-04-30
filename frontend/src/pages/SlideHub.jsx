@@ -687,6 +687,25 @@ function Workspace({ onBack }) {
   const [deepResearchOpen, setDeepResearchOpen] = useState(false);
   const chatRef = useRef(null);
 
+  // Pick up slides generated from AuraChat
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('aura_slides');
+      if (raw) {
+        sessionStorage.removeItem('aura_slides');
+        const data = JSON.parse(raw);
+        const slides = data.slides || [];
+        if (slides.length > 0) {
+          dispatch({ type: 'SET_SLIDES', slides: [] });
+          slides.forEach((s, i) => {
+            setTimeout(() => dispatch({ type: 'ADD_SLIDE', slide: { ...s, id: s.id || `sl-aura-${i}` } }), i * 150);
+          });
+          setTimeout(() => dispatch({ type: 'GO', idx: 0 }), slides.length * 150 + 200);
+        }
+      }
+    } catch (e) { console.warn('Failed to load aura_slides:', e); }
+  }, [dispatch]);
+
   const handleResize = useCallback((val) => {
     if (val === 'get') return leftWidth;
     setLeftWidth(Math.max(300, Math.min(700, val)));

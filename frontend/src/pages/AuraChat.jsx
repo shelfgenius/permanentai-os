@@ -583,7 +583,7 @@ export default function AuraChat({ onBack }) {
     }
   }, [isProcessing, inputValue, backendUrl, addStep]);
 
-  // ── PowerPoint (real Nemotron backend) ───────────────────────────
+  // ── PowerPoint (real /slide/generate → SlideHub) ─────────────────
   const handlePowerPoint = useCallback(async () => {
     if (isProcessing || !inputValue.trim()) return;
     const topic = inputValue.trim();
@@ -594,50 +594,40 @@ export default function AuraChat({ onBack }) {
     setIsProcessing(true);
 
     const userMsgId = Date.now();
-    addStep('Analyzing content for presentation...');
+    addStep('Generating presentation...');
     setChatMessages(prev => [...prev, { id: userMsgId, role: 'user', content: `[Presentation] ${topic}`, timestamp: new Date() }]);
     const assistantMsgId = userMsgId + 1;
-    setChatMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', timestamp: new Date() }]);
+    setChatMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '⏳ Generating slides...', timestamp: new Date() }]);
 
     try {
-      addStep('Generating slide structure...');
-      const res = await fetch(`${backendUrl}/nvidia/chat`, {
+      addStep('Calling AI slide generator...');
+      const res = await fetch(`${backendUrl}/slide/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: 'You are Echo, a real-time presentation agent. Structure your response with: [READING] — topic and context examined, [THINKING] — reasoning about slide structure, [PLANNING] — outline of the presentation, [CODING] — the actual slides with titles, bullet points, speaker notes, and suggested visuals, [CHECKING] — verification of completeness. Be professional and well-structured.' },
-            { role: 'user', content: `Create a detailed PowerPoint presentation outline on: "${topic}".` },
-          ],
-          stream: true,
-          enable_thinking: true,
-        }),
+        body: JSON.stringify({ prompt: topic, style: 'professional', slide_count: 8 }),
+        signal: AbortSignal.timeout(60000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      addStep('Designing slides...');
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullText = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
-          try {
-            const parsed = JSON.parse(data);
-            const token = parsed.choices?.[0]?.delta?.content || '';
-            if (token) {
-              fullText += token;
-              setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m));
-            }
-          } catch {}
-        }
-      }
-      addStep('Presentation complete.');
-    } catch {
-      setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: '*Presentation generation failed.*' } : m));
+      const data = await res.json();
+      const slides = data.slides || [];
+      addStep(`Generated ${slides.length} slides.`);
+
+      // Store slides for SlideHub to pick up
+      try { sessionStorage.setItem('aura_slides', JSON.stringify(data)); } catch {}
+
+      // Show summary in chat
+      const titles = slides.map((s, i) => `${i + 1}. **${s.title || 'Slide'}**`).join('\n');
+      const summary = `✅ **Presentation ready — ${slides.length} slides**\n\n${titles}\n\n*Opening in SlideHub...*`;
+      setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: summary } : m));
+      addStep('Presentation complete — opening SlideHub.');
+
+      // Navigate to SlideHub after a short delay
+      setTimeout(() => {
+        window.location.href = '/slide';
+      }, 1500);
+    } catch (err) {
+      console.warn('[AURA] Presentation generation failed:', err.message);
+      setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: '*Presentation generation failed. Try again or check backend.*' } : m));
     } finally {
       setOrbState('standby'); setShowThinking(false); setIsProcessing(false);
     }

@@ -11,145 +11,111 @@ const AI_MODELS = [
   { value: 'auto', label: 'Auto' },
 ];
 
-// ─── Voice hook — Browser SpeechRecognition (primary) + Parakeet (upgrade) ──
-// Uses browser's built-in speech recognition for instant transcription.
-// Runs in parallel with MediaRecorder for audio visualization.
-// Backend Parakeet ASR is tried as an optional upgrade for better accuracy.
-function useVoice(backendUrl) {
+// ─── Voice hook — Browser SpeechRecognition only ────────────────────────────
+// Uses ONLY browser SpeechRecognition (no getUserMedia/AudioContext competing
+// for the mic). Provides a simulated audio level for orb animation.
+function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioData, setAudioData] = useState(new Uint8Array(128));
   const [transcript, setTranscript] = useState('');
-  const audioCtxRef = useRef(null);
-  const analyserRef = useRef(null);
-  const streamRef = useRef(null);
-  const rafRef = useRef(null);
-  const micReadyRef = useRef(false);
   const recognitionRef = useRef(null);
   const liveTranscriptRef = useRef('');
+  const pulseRef = useRef(null);
 
-  // ── Request mic permission once on mount ────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
-        streamRef.current = stream;
-        const ctx = new AudioContext();
-        audioCtxRef.current = ctx;
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyserRef.current = analyser;
-        ctx.createMediaStreamSource(stream).connect(analyser);
-        micReadyRef.current = true;
-      } catch {
-        micReadyRef.current = false;
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      audioCtxRef.current?.close().catch(() => {});
+  // Simulated audio pulse while recording (for orb animation)
+  const startPulse = useCallback(() => {
+    let t = 0;
+    const tick = () => {
+      t += 0.12;
+      const level = 0.3 + 0.3 * Math.sin(t) + 0.15 * Math.sin(t * 2.7);
+      setAudioLevel(level);
+      const arr = new Uint8Array(128);
+      for (let i = 0; i < 128; i++) arr[i] = Math.floor((level + Math.random() * 0.15) * 200);
+      setAudioData(arr);
+      pulseRef.current = requestAnimationFrame(tick);
     };
+    tick();
   }, []);
 
-  const analyze = useCallback(() => {
-    if (!analyserRef.current) return;
-    const arr = new Uint8Array(analyserRef.current.frequencyBinCount);
-    analyserRef.current.getByteFrequencyData(arr);
-    setAudioLevel(arr.reduce((a, b) => a + b, 0) / arr.length / 255);
-    setAudioData(arr);
-    rafRef.current = requestAnimationFrame(analyze);
+  const stopPulse = useCallback(() => {
+    if (pulseRef.current) cancelAnimationFrame(pulseRef.current);
+    setAudioLevel(0);
+    setAudioData(new Uint8Array(128));
   }, []);
 
   const toggleRecording = useCallback(async () => {
     console.log('[AURA] toggleRecording called, isRecording:', isRecording);
     if (isRecording) {
       // ── Stop: end SpeechRecognition, return transcript ──
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      stopPulse();
       setIsRecording(false);
-      setAudioLevel(0);
-      setAudioData(new Uint8Array(128));
-      // Stop recognition and wait for final result
       return new Promise((resolve) => {
         const sr = recognitionRef.current;
-        if (!sr) { resolve(liveTranscriptRef.current); return; }
-        // Give it a moment to finalize
+        if (!sr) {
+          console.log('[AURA] No SR ref, returning transcript:', liveTranscriptRef.current);
+          resolve(liveTranscriptRef.current);
+          return;
+        }
+        // Wait up to 600ms for final result after stopping
         const timer = setTimeout(() => {
           const text = liveTranscriptRef.current;
           console.log('[AURA] STT final (timeout):', text);
+          recognitionRef.current = null;
           resolve(text);
-        }, 500);
+        }, 600);
         sr.onend = () => {
           clearTimeout(timer);
           const text = liveTranscriptRef.current;
-          console.log('[AURA] STT final:', text);
+          console.log('[AURA] STT final (onend):', text);
+          recognitionRef.current = null;
           resolve(text);
         };
         try { sr.stop(); } catch { clearTimeout(timer); resolve(liveTranscriptRef.current); }
       });
     } else {
-      // ── Start: launch SpeechRecognition + audio visualizer ──
+      // ── Start: launch SpeechRecognition only ──
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      console.log('[AURA] SpeechRecognition API available:', !!SR);
+      if (!SR) { console.warn('[AURA] No SpeechRecognition in this browser'); return ''; }
+
+      // Reset transcript
+      liveTranscriptRef.current = '';
+      setTranscript('');
+
       try {
-        // Ensure mic stream
-        if (!micReadyRef.current || !streamRef.current || !streamRef.current.active) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = stream;
-          if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-            const ctx = new AudioContext();
-            audioCtxRef.current = ctx;
-            const analyser = ctx.createAnalyser();
-            analyser.fftSize = 256;
-            analyserRef.current = analyser;
-            ctx.createMediaStreamSource(stream).connect(analyser);
+        const sr = new SR();
+        sr.continuous = true;
+        sr.interimResults = true;
+        sr.lang = 'en-US';
+        sr.maxAlternatives = 1;
+        sr.onresult = (e) => {
+          let final = '', interim = '';
+          for (let i = 0; i < e.results.length; i++) {
+            if (e.results[i].isFinal) final += e.results[i][0].transcript;
+            else interim += e.results[i][0].transcript;
           }
-          micReadyRef.current = true;
-        }
-        if (audioCtxRef.current?.state === 'suspended') {
-          await audioCtxRef.current.resume();
-        }
+          liveTranscriptRef.current = (final + ' ' + interim).trim();
+          setTranscript(liveTranscriptRef.current);
+          console.log('[AURA] SR result:', liveTranscriptRef.current);
+        };
+        sr.onaudiostart = () => { console.log('[AURA] SR audiostart — mic is active'); };
+        sr.onspeechstart = () => { console.log('[AURA] SR speechstart — voice detected'); };
+        sr.onerror = (e) => { console.warn('[AURA] SR error:', e.error); };
+        sr.onend = () => { console.log('[AURA] SR ended naturally (while recording)'); };
+        recognitionRef.current = sr;
+        sr.start();
+        console.log('[AURA] SpeechRecognition started');
 
-        // Reset transcript
-        liveTranscriptRef.current = '';
-        setTranscript('');
-
-        // Start browser SpeechRecognition (live, on-device)
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        console.log('[AURA] SpeechRecognition API available:', !!SR);
-        if (SR) {
-          const sr = new SR();
-          sr.continuous = true;
-          sr.interimResults = true;
-          sr.lang = 'en-US';
-          sr.maxAlternatives = 1;
-          sr.onresult = (e) => {
-            let final = '', interim = '';
-            for (let i = 0; i < e.results.length; i++) {
-              if (e.results[i].isFinal) final += e.results[i][0].transcript;
-              else interim += e.results[i][0].transcript;
-            }
-            liveTranscriptRef.current = (final + ' ' + interim).trim();
-            setTranscript(liveTranscriptRef.current);
-          };
-          sr.onerror = (e) => { console.warn('[AURA] SpeechRecognition error:', e.error, e); };
-          sr.onend = () => { console.log('[AURA] SpeechRecognition ended naturally'); };
-          recognitionRef.current = sr;
-          sr.start();
-          console.log('[AURA] SpeechRecognition started (live)');
-        }
-
-        // Start audio visualizer
         setIsRecording(true);
-        analyze();
+        startPulse();
         return '';
       } catch (e) {
-        console.warn('[AURA] toggleRecording start error:', e);
+        console.warn('[AURA] SR start failed:', e);
         return '';
       }
     }
-  }, [isRecording, analyze]);
+  }, [isRecording, startPulse, stopPulse]);
 
   return { isRecording, audioLevel, audioData, transcript, toggleRecording };
 }
@@ -335,7 +301,7 @@ function FeatureCards() {
 // ═══════════════════════════════════════════════════════════════════
 export default function AuraChat({ onBack }) {
   const { backendUrl } = useStore();
-  const voice = useVoice(backendUrl);
+  const voice = useVoice();
   const stepId = useRef(0);
   const abortRef = useRef(null);
   const conversationRef = useRef([]);

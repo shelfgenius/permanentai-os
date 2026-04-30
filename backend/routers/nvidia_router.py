@@ -12,14 +12,14 @@ router = APIRouter(prefix="/nvidia", tags=["nvidia"])
 
 NIM_BASE       = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 NIM_GENAI_BASE = "https://ai.api.nvidia.com/v1/genai"  # Flux uses this endpoint
-KEY_IMAGE      = os.getenv("NVIDIA_API_KEY_IMAGE", "")      # SDXL-turbo
-KEY_IMAGE_FLUX = os.getenv("NVIDIA_API_KEY_FLUX", "")       # Flux.1 Schnell
-KEY_TTS        = os.getenv("NVIDIA_API_KEY_TTS", "")        # Magpie TTS Multilingual
-KEY_TRANSLATE  = os.getenv("NVIDIA_API_KEY_TRANSLATE", "")   # Riva Translate 4.0b
-KEY_CODING     = os.getenv("NVIDIA_API_KEY_CODING", "")      # Qwen 3.5 122b
-KEY_WEATHER    = os.getenv("NVIDIA_API_KEY_WEATHER", "")     # FourCastNet
-KEY_CHAT       = os.getenv("NVIDIA_API_KEY", "")             # Nemotron Omni (brain)
-KEY_ASR        = os.getenv("NVIDIA_API_KEY_ASR", "")         # Parakeet ASR (ears)
+KEY_IMAGE      = os.getenv("NVIDIA_API_KEY_IMAGE", "").strip()
+KEY_IMAGE_FLUX = os.getenv("NVIDIA_API_KEY_FLUX", "").strip()
+KEY_TTS        = os.getenv("NVIDIA_API_KEY_TTS", "").strip()
+KEY_TRANSLATE  = os.getenv("NVIDIA_API_KEY_TRANSLATE", "").strip()
+KEY_CODING     = os.getenv("NVIDIA_API_KEY_CODING", "").strip()
+KEY_WEATHER    = os.getenv("NVIDIA_API_KEY_WEATHER", "").strip()
+KEY_CHAT       = os.getenv("NVIDIA_API_KEY", "").strip()
+KEY_ASR        = os.getenv("NVIDIA_API_KEY_ASR", "").strip()
 
 
 # ── Image Generation (Stable Diffusion 3 Medium) ──────────────────────────────

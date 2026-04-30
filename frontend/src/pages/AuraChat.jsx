@@ -12,6 +12,8 @@ const AI_MODELS = [
 ];
 
 // ─── Voice hook with Parakeet ASR ──────────────────────────────────
+// Requests mic permission ONCE on mount and keeps the stream alive so
+// PWA "Add to Home" doesn't re-prompt every recording cycle.
 function useVoice(backendUrl) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -23,6 +25,34 @@ function useVoice(backendUrl) {
   const streamRef = useRef(null);
   const rafRef = useRef(null);
   const chunksRef = useRef([]);
+  const micReadyRef = useRef(false);
+
+  // ── Request mic permission once on mount ────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        const ctx = new AudioContext();
+        audioCtxRef.current = ctx;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserRef.current = analyser;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        micReadyRef.current = true;
+      } catch {
+        micReadyRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      audioCtxRef.current?.close().catch(() => {});
+    };
+  }, []);
 
   const analyze = useCallback(() => {
     if (!analyserRef.current) return;
@@ -55,6 +85,7 @@ function useVoice(backendUrl) {
       fd.append('audio', blob, 'recording.wav');
       const res = await fetch(`${backendUrl}/nvidia/asr`, {
         method: 'POST', body: fd,
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) return '';
       const data = await res.json();
@@ -68,6 +99,7 @@ function useVoice(backendUrl) {
 
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
+      // ── Stop recording, send to STT ──
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return new Promise((resolve) => {
         const rec = mediaRecorderRef.current;
@@ -75,8 +107,6 @@ function useVoice(backendUrl) {
           rec.onstop = async () => {
             const blob = new Blob(chunksRef.current, { type: 'audio/wav' });
             chunksRef.current = [];
-            streamRef.current?.getTracks().forEach(t => t.stop());
-            audioCtxRef.current?.close();
             setIsRecording(false);
             setAudioLevel(0);
             setAudioData(new Uint8Array(128));
@@ -90,17 +120,28 @@ function useVoice(backendUrl) {
         }
       });
     } else {
+      // ── Start recording (reuse existing stream) ──
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
-        const ctx = new AudioContext();
-        audioCtxRef.current = ctx;
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyserRef.current = analyser;
-        ctx.createMediaStreamSource(stream).connect(analyser);
+        if (!micReadyRef.current || !streamRef.current || !streamRef.current.active) {
+          // Stream died or never started — re-acquire once
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          streamRef.current = stream;
+          if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+            const ctx = new AudioContext();
+            audioCtxRef.current = ctx;
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            analyserRef.current = analyser;
+            ctx.createMediaStreamSource(stream).connect(analyser);
+          }
+          micReadyRef.current = true;
+        }
+        // Resume AudioContext if suspended (required after user gesture on some browsers)
+        if (audioCtxRef.current?.state === 'suspended') {
+          await audioCtxRef.current.resume();
+        }
         chunksRef.current = [];
-        const rec = new MediaRecorder(stream);
+        const rec = new MediaRecorder(streamRef.current);
         mediaRecorderRef.current = rec;
         rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
         rec.start();
@@ -112,12 +153,6 @@ function useVoice(backendUrl) {
       }
     }
   }, [isRecording, analyze, sendToParakeet]);
-
-  useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    audioCtxRef.current?.close();
-  }, []);
 
   return { isRecording, audioLevel, audioData, transcript, toggleRecording };
 }
@@ -452,16 +487,28 @@ export default function AuraChat({ onBack }) {
   const stopAndProcess = useCallback(async () => {
     if (!voice.isRecording) return;
     setOrbState('thinking');
-    const transcript = await voice.toggleRecording();
-    if (transcript && transcript.trim()) {
-      handleSendMessage(transcript.trim());
-    } else {
-      // No transcript — restart listening
-      if (autoListenRef.current) {
-        setTimeout(() => startListening(), 500);
+    // Safety timeout: force reset if STT hangs
+    const safetyTimer = setTimeout(() => {
+      setOrbState('standby');
+      setIsProcessing(false);
+    }, 45000);
+    try {
+      const transcript = await voice.toggleRecording();
+      clearTimeout(safetyTimer);
+      if (transcript && transcript.trim()) {
+        handleSendMessage(transcript.trim());
       } else {
-        setOrbState('standby');
+        // No transcript — restart listening
+        if (autoListenRef.current) {
+          setTimeout(() => startListening(), 500);
+        } else {
+          setOrbState('standby');
+        }
       }
+    } catch {
+      clearTimeout(safetyTimer);
+      setOrbState('standby');
+      setIsProcessing(false);
     }
   }, [voice, handleSendMessage, startListening]);
 

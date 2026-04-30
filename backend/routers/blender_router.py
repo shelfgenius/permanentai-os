@@ -36,8 +36,10 @@ SCULPT_DIR.mkdir(parents=True, exist_ok=True)
 
 BLENDER_PATH   = os.getenv("BLENDER_PATH", "")
 NVIDIA_BASE    = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY_IMAGE", "")
-TRELLIS_KEY    = os.getenv("NVIDIA_API_KEY_TRELLIS", "")
+NVIDIA_GENAI   = "https://ai.api.nvidia.com/v1/genai"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY_IMAGE", "").strip()
+NVIDIA_FLUX_KEY = os.getenv("NVIDIA_API_KEY_FLUX", "").strip()
+TRELLIS_KEY    = os.getenv("NVIDIA_API_KEY_TRELLIS", "").strip()
 TRELLIS_URL    = "https://ai.api.nvidia.com/v1/genai/microsoft/trellis"
 
 
@@ -225,37 +227,47 @@ async def _generate_nvidia(prompt: str, out_glb: Path, out_png: Path, job_id: st
         except Exception as e:
             logger.warning("Edify-3D unavailable: %s — trying image fallback", e)
 
-        # ── Attempt 2: generate a front-view image via Flux ───
-        # This gives the user *something* to look at while real 3D gen
+        # ── Attempt 2: generate a 3D-style image via Flux ─────────
+        # This gives the user a rendered preview while real 3D gen
         # is not yet available in their NIM tier.
-        try:
-            img_payload = {
-                "prompt": f"3D render, studio lighting, centered on white background, {prompt}",
-                "cfg_scale": 5,
-                "height": 1024,
-                "width": 1024,
-                "steps": 4,
-                "seed": 0,
-            }
-            resp = await client.post(
-                f"{NVIDIA_BASE}/stabilityai/stable-diffusion-3-medium/text-to-image",
-                headers=headers,
-                json=img_payload,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                img_b64 = (
-                    data.get("artifacts", [{}])[0].get("base64")
-                    or data.get("image")
+        flux_key = NVIDIA_FLUX_KEY or NVIDIA_API_KEY
+        if flux_key:
+            try:
+                img_payload = {
+                    "prompt": f"3D render, isometric view, studio lighting, centered on dark background, {prompt}",
+                    "width": 1024,
+                    "height": 1024,
+                    "steps": 4,
+                    "seed": 0,
+                    "cfg_scale": 0.0,
+                }
+                resp = await client.post(
+                    f"{NVIDIA_GENAI}/black-forest-labs/flux.1-schnell",
+                    headers={
+                        "Authorization": f"Bearer {flux_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    json=img_payload,
+                    timeout=120,
                 )
-                if img_b64:
-                    out_png.write_bytes(base64.b64decode(img_b64))
-                    # No GLB from this path — write a valid stub cube so download still works
-                    _write_stub_glb(out_glb)
-                    logger.info("Sculpt nvidia fallback: image-only for %s", job_id)
-                    return
-        except Exception as e:
-            logger.warning("NVIDIA image fallback failed: %s", e)
+                logger.info("Flux image fallback response: %d for %s", resp.status_code, job_id)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    img_b64 = None
+                    if "artifacts" in data and data["artifacts"]:
+                        img_b64 = data["artifacts"][0].get("base64") or data["artifacts"][0].get("b64_json")
+                    if not img_b64:
+                        img_b64 = data.get("image")
+                    if img_b64:
+                        out_png.write_bytes(base64.b64decode(img_b64))
+                        _write_stub_glb(out_glb)
+                        logger.info("Sculpt Flux fallback: image-only for %s", job_id)
+                        return
+                else:
+                    logger.warning("Flux fallback %d: %s", resp.status_code, resp.text[:200])
+            except Exception as e:
+                logger.warning("Flux image fallback failed: %s", e)
 
     # If both fail, fall back to stub
     _generate_stub(out_glb, out_png)
@@ -320,6 +332,7 @@ async def status():
         "trellis_configured": bool(TRELLIS_KEY),
         "blender_configured": bool(BLENDER_PATH),
         "nvidia_configured": bool(NVIDIA_API_KEY),
+        "flux_configured": bool(NVIDIA_FLUX_KEY),
         "trellis_model": "microsoft/trellis" if TRELLIS_KEY else None,
         "blender_path": BLENDER_PATH or None,
         "output_dir": str(SCULPT_DIR),

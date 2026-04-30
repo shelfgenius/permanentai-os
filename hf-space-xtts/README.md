@@ -1,14 +1,14 @@
 ---
 title: AURA Voice - Irish Voice Clone
 emoji: 🎙️
-colorFrom: emerald
+colorFrom: green
 colorTo: blue
 sdk: gradio
 sdk_version: 4.44.0
 app_file: app.py
 pinned: true
 license: apache-2.0
-hardware: zero-a10g
+hardware: cpu-basic
 ---
 
 # 🎙️ AURA Voice — Irish Female Voice Clone

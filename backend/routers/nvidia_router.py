@@ -20,6 +20,7 @@ KEY_CODING     = os.getenv("NVIDIA_API_KEY_CODING", "").strip()
 KEY_WEATHER    = os.getenv("NVIDIA_API_KEY_WEATHER", "").strip()
 KEY_CHAT       = os.getenv("NVIDIA_API_KEY", "").strip()
 KEY_ASR        = os.getenv("NVIDIA_API_KEY_ASR", "").strip()
+GROQ_KEY       = os.getenv("GROQ_API_KEY", "").strip()
 
 
 # ── Image Generation (Stable Diffusion 3 Medium) ──────────────────────────────
@@ -378,9 +379,10 @@ async def nvidia_aura_chat(req: AuraChatRequest):
             raise HTTPException(504, "Nemotron chat timeout")
 
 
-# ── AURA Ears — Parakeet ASR (Speech-to-Text) ───────────────────────────────
+# ── AURA Ears — Speech-to-Text (Groq Whisper primary, NVIDIA fallback) ───────
 
-ASR_MODELS = [
+GROQ_ASR_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+NVIDIA_ASR_MODELS = [
     "nvidia/parakeet-ctc-1.1b-asr",
     "nvidia/parakeet-ctc-0.6b-asr",
 ]
@@ -388,36 +390,57 @@ ASR_MODELS = [
 
 @router.post("/asr")
 async def nvidia_asr(audio: UploadFile = File(...)):
-    """AURA Ears — Parakeet CTC ASR for instant speech transcription."""
-    api_key = KEY_ASR or KEY_CHAT
-    if not api_key:
-        raise HTTPException(503, "No NVIDIA API key configured for ASR")
-
+    """AURA Ears — Speech-to-Text. Tries Groq Whisper first, then NVIDIA Parakeet."""
     audio_bytes = await audio.read()
     content_type = audio.content_type or "audio/wav"
-    filename = audio.filename or "audio.wav"
+    filename = audio.filename or "audio.webm"
     logger.info("ASR request: %d bytes, content_type=%s", len(audio_bytes), content_type)
 
-    last_err = ""
-    for model in ASR_MODELS:
+    errors = []
+
+    # ── 1. Groq Whisper (fast, free, reliable) ──
+    if GROQ_KEY:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.post(
-                    f"{NIM_BASE}/audio/transcriptions",
+                    GROQ_ASR_URL,
                     files={"file": (filename, audio_bytes, content_type)},
-                    data={"model": model, "language": "en"},
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    data={"model": "whisper-large-v3-turbo", "language": "en"},
+                    headers={"Authorization": f"Bearer {GROQ_KEY}"},
                 )
             if r.status_code == 200:
-                logger.info("ASR OK with model %s", model)
-                return r.json()
-            last_err = f"model={model} status={r.status_code} body={r.text[:200]}"
-            logger.warning("ASR model %s failed: %s %s", model, r.status_code, r.text[:200])
-        except httpx.TimeoutException:
-            last_err = f"model={model} timeout"
-            logger.warning("ASR model %s timeout", model)
+                data = r.json()
+                text = data.get("text", "")
+                logger.info("Groq Whisper OK: %s", text[:80])
+                return {"text": text}
+            errors.append(f"groq status={r.status_code} body={r.text[:200]}")
+            logger.warning("Groq Whisper failed: %s %s", r.status_code, r.text[:200])
         except Exception as e:
-            last_err = f"model={model} error={e}"
-            logger.warning("ASR model %s exception: %s", model, e)
+            errors.append(f"groq error={e}")
+            logger.warning("Groq Whisper exception: %s", e)
 
-    raise HTTPException(502, f"All ASR models failed. Last: {last_err}")
+    # ── 2. NVIDIA Parakeet (fallback) ──
+    api_key = KEY_ASR or KEY_CHAT
+    if api_key:
+        for model in NVIDIA_ASR_MODELS:
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    r = await client.post(
+                        f"{NIM_BASE}/audio/transcriptions",
+                        files={"file": (filename, audio_bytes, content_type)},
+                        data={"model": model, "language": "en"},
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                if r.status_code == 200:
+                    logger.info("NVIDIA ASR OK with model %s", model)
+                    return r.json()
+                errors.append(f"nvidia {model} status={r.status_code}")
+                logger.warning("NVIDIA ASR %s: %s %s", model, r.status_code, r.text[:200])
+            except Exception as e:
+                errors.append(f"nvidia {model} error={e}")
+                logger.warning("NVIDIA ASR %s exception: %s", model, e)
+
+    if not GROQ_KEY and not api_key:
+        raise HTTPException(503, "No ASR API keys configured (need GROQ_API_KEY or NVIDIA_API_KEY_ASR)")
+
+    raise HTTPException(502, f"All ASR providers failed: {'; '.join(errors)}")

@@ -35,8 +35,9 @@ router = APIRouter(prefix="/aura/voice", tags=["aura-voice"])
 PARAKEET_URL = os.getenv("AURA_PARAKEET_URL", "http://localhost:9200")
 MAGPIE_URL   = os.getenv("AURA_MAGPIE_URL", "http://localhost:9300")
 
-# ── XTTS-v2 HF Space / Colab endpoint (free voice cloning) ───────
-XTTS_HF_URL  = os.getenv("AURA_XTTS_URL", "")  # e.g. https://shelfgenius-aura-voice.hf.space
+# ── XTTS / F5-TTS voice cloning endpoints (free) ────────────────
+XTTS_COLAB_URL = os.getenv("AURA_XTTS_URL", "")       # Colab Gradio (fast, temporary URL)
+XTTS_HF_URL    = os.getenv("AURA_XTTS_HF_URL", "")    # HF Space (slow but permanent)
 
 # ── Cloud NIM fallback endpoints ──────────────────────────────────
 NIM_BASE     = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
@@ -203,13 +204,16 @@ async def aura_tts(req: TTSRequest):
     except Exception as e:
         logger.info("Local Magpie unavailable (%s), falling back to cloud", e)
 
-    # 2. Fallback: XTTS-v2 via HF Space / Colab (free, Irish voice cloning)
-    if XTTS_HF_URL:
+    # 2. Fallback: F5-TTS via Colab (fast, temporary Gradio URL)
+    # 3. Fallback: F5-TTS via HF Space (slow but permanent URL)
+    for label, url in [("colab", XTTS_COLAB_URL), ("hfspace", XTTS_HF_URL)]:
+        if not url:
+            continue
         try:
             async with httpx.AsyncClient(timeout=60) as c:
                 r = await c.post(
-                    f"{XTTS_HF_URL}/api/synthesize",
-                    json={"data": [req.text, req.language[:2]]},
+                    f"{url}/api/synthesize",
+                    json={"data": [req.text]},
                 )
             if r.status_code == 200:
                 result = r.json()
@@ -219,22 +223,22 @@ async def aura_tts(req: TTSRequest):
                     async with httpx.AsyncClient(timeout=30) as c:
                         audio_r = await c.get(
                             audio_url if audio_url.startswith("http")
-                            else f"{XTTS_HF_URL}/file={audio_url}"
+                            else f"{url}/file={audio_url}"
                         )
                     if audio_r.status_code == 200 and len(audio_r.content) > 100:
                         return Response(
                             content=audio_r.content,
                             media_type="audio/wav",
                             headers={
-                                "X-TTS-Source": "xtts-v2-hfspace",
-                                "X-TTS-Voice": "irish-xtts-clone",
+                                "X-TTS-Source": f"f5tts-{label}",
+                                "X-TTS-Voice": "irish-f5tts-clone",
                             },
                         )
-            logger.warning("XTTS HF Space error: %s", r.status_code)
+            logger.warning("F5-TTS %s error: %s", label, r.status_code)
         except Exception as e:
-            logger.info("XTTS HF Space unavailable (%s), falling back to cloud Magpie", e)
+            logger.info("F5-TTS %s unavailable (%s), trying next", label, e)
 
-    # 3. Fallback: cloud Magpie TTS Multilingual (generic voice)
+    # 4. Fallback: cloud Magpie TTS Multilingual (generic voice)
     if KEY_TTS:
         try:
             async with httpx.AsyncClient(timeout=30) as c:

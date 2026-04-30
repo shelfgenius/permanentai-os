@@ -398,6 +398,8 @@ export default function AuraChat({ onBack }) {
     try {
       const controller = new AbortController();
       abortRef.current = controller;
+      // Safety: auto-abort after 30s if backend hangs
+      const chatTimeout = setTimeout(() => controller.abort(), 30000);
       addStep('Connecting to Nemotron Omni...');
 
       const res = await fetch(`${backendUrl}/nvidia/chat`, {
@@ -412,6 +414,7 @@ export default function AuraChat({ onBack }) {
         signal: controller.signal,
       });
 
+      clearTimeout(chatTimeout);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       addStep('Streaming response...');
       setOrbState('speaking');
@@ -458,6 +461,7 @@ export default function AuraChat({ onBack }) {
       conversationRef.current.push({ role: 'assistant', content: fullText });
       addStep('Response complete.');
     } catch (err) {
+      console.warn('[AURA] Chat error:', err.message);
       if (err.name !== 'AbortError') {
         setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: '*Error: Could not reach the backend.*' } : m));
       }
@@ -489,12 +493,8 @@ export default function AuraChat({ onBack }) {
       if (transcript && transcript.trim()) {
         handleSendMessage(transcript.trim());
       } else {
-        // No transcript — restart listening
-        if (autoListenRef.current) {
-          setTimeout(() => startListening(), 500);
-        } else {
-          setOrbState('standby');
-        }
+        console.log('[AURA] Empty transcript — returning to standby');
+        setOrbState('standby');
       }
     } catch {
       setOrbState('standby');

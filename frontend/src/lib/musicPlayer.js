@@ -292,9 +292,8 @@ async function _resolveLocalUrl() {
   // Check saved URL first
   const saved = localStorage.getItem('yt_local_url');
   if (saved && await _checkLocal(saved)) { _localUrl = saved; _localVerifiedAt = Date.now(); return true; }
-  // Check permanent tunnel, then localhost
+  // Check localhost only (tunnel URL is set via localStorage to avoid CORS errors)
   const candidates = [
-    'https://yt.aura-ai.live',
     'http://localhost:8765',
   ];
   for (const url of candidates) {

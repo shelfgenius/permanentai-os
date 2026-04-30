@@ -64,7 +64,8 @@ function useVoice(backendUrl) {
   }, []);
 
   const sendToParakeet = useCallback(async (blob) => {
-    if (!backendUrl) return '';
+    if (!backendUrl) { console.warn('[AURA] No backendUrl for STT'); return ''; }
+    console.log('[AURA] STT: sending audio blob', blob.size, 'bytes');
     // 1. Try local Parakeet NIM (faster, no network hop)
     try {
       const fd = new FormData();
@@ -76,9 +77,9 @@ function useVoice(backendUrl) {
       if (res.ok) {
         const data = await res.json();
         const text = data.text || '';
-        if (text.trim()) { setTranscript(text); return text; }
+        if (text.trim()) { console.log('[AURA] STT local OK:', text); setTranscript(text); return text; }
       }
-    } catch { /* local unavailable, try cloud */ }
+    } catch (e) { console.log('[AURA] STT local unavailable:', e.message); }
     // 2. Fallback: cloud Parakeet
     try {
       const fd = new FormData();
@@ -90,9 +91,11 @@ function useVoice(backendUrl) {
       if (!res.ok) return '';
       const data = await res.json();
       const text = data.text || data.transcript || '';
+      console.log('[AURA] STT cloud OK:', text);
       setTranscript(text);
       return text;
-    } catch {
+    } catch (e) {
+      console.warn('[AURA] STT cloud failed:', e.message);
       return '';
     }
   }, [backendUrl]);
@@ -384,6 +387,7 @@ export default function AuraChat({ onBack }) {
 
   // ── Nemotron streaming chat (Brain) ──────────────────────────────
   const handleSendMessage = useCallback(async (message) => {
+    console.log('[AURA] handleSendMessage:', message.slice(0, 50));
     if (!message.trim() || isProcessing) return;
     setIsProcessing(true);
     setOrbState('thinking');
@@ -487,6 +491,7 @@ export default function AuraChat({ onBack }) {
   const stopAndProcess = useCallback(async () => {
     if (!voice.isRecording) return;
     setOrbState('thinking');
+    console.log('[AURA] stopAndProcess: waiting for STT...');
     // Safety timeout: force reset if STT hangs
     const safetyTimer = setTimeout(() => {
       setOrbState('standby');
@@ -495,6 +500,7 @@ export default function AuraChat({ onBack }) {
     try {
       const transcript = await voice.toggleRecording();
       clearTimeout(safetyTimer);
+      console.log('[AURA] STT transcript:', JSON.stringify(transcript));
       if (transcript && transcript.trim()) {
         handleSendMessage(transcript.trim());
       } else {

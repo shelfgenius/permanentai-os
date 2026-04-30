@@ -292,13 +292,7 @@ async function _resolveLocalUrl() {
   // Check saved URL first
   const saved = localStorage.getItem('yt_local_url');
   if (saved && await _checkLocal(saved)) { _localUrl = saved; _localVerifiedAt = Date.now(); return true; }
-  // Check localhost only (tunnel URL is set via localStorage to avoid CORS errors)
-  const candidates = [
-    'http://localhost:8765',
-  ];
-  for (const url of candidates) {
-    if (await _checkLocal(url)) { _localUrl = url; _localVerifiedAt = Date.now(); return true; }
-  }
+  // Only check if user has explicitly set a URL — no auto-probing
   _localUrl = '';
   return false;
 }

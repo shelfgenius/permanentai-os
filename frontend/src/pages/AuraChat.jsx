@@ -485,7 +485,7 @@ export default function AuraChat({ onBack }) {
   const stopAndProcess = useCallback(async () => {
     if (!voice.isRecording) return;
     setOrbState('thinking');
-    console.log('[AURA] stopAndProcess: stopping SpeechRecognition...');
+    console.log('[AURA] stopAndProcess: stopping recording...');
     try {
       const transcript = await voice.toggleRecording();
       console.log('[AURA] STT transcript:', JSON.stringify(transcript));

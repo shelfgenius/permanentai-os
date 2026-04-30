@@ -380,28 +380,44 @@ async def nvidia_aura_chat(req: AuraChatRequest):
 
 # ── AURA Ears — Parakeet ASR (Speech-to-Text) ───────────────────────────────
 
+ASR_MODELS = [
+    "nvidia/parakeet-ctc-1.1b-asr",
+    "nvidia/parakeet-ctc-0.6b-asr",
+]
+
 
 @router.post("/asr")
 async def nvidia_asr(audio: UploadFile = File(...)):
     """AURA Ears — Parakeet CTC ASR for instant speech transcription."""
-    api_key = KEY_ASR
+    api_key = KEY_ASR or KEY_CHAT
     if not api_key:
-        raise HTTPException(503, "NVIDIA_API_KEY_ASR not configured for Parakeet ASR")
+        raise HTTPException(503, "No NVIDIA API key configured for ASR")
 
     audio_bytes = await audio.read()
     content_type = audio.content_type or "audio/wav"
+    filename = audio.filename or "audio.wav"
+    logger.info("ASR request: %d bytes, content_type=%s", len(audio_bytes), content_type)
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                f"{NIM_BASE}/audio/transcriptions",
-                files={"file": (audio.filename or "audio.wav", audio_bytes, content_type)},
-                data={"model": "nvidia/parakeet-ctc-0.6b-asr", "language": "en"},
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-        if r.status_code != 200:
-            logger.warning("Parakeet ASR error %s: %s", r.status_code, r.text[:300])
-            raise HTTPException(r.status_code, f"Parakeet ASR error: {r.text[:200]}")
-        return r.json()
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Parakeet ASR timeout")
+    last_err = ""
+    for model in ASR_MODELS:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    f"{NIM_BASE}/audio/transcriptions",
+                    files={"file": (filename, audio_bytes, content_type)},
+                    data={"model": model, "language": "en"},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+            if r.status_code == 200:
+                logger.info("ASR OK with model %s", model)
+                return r.json()
+            last_err = f"model={model} status={r.status_code} body={r.text[:200]}"
+            logger.warning("ASR model %s failed: %s %s", model, r.status_code, r.text[:200])
+        except httpx.TimeoutException:
+            last_err = f"model={model} timeout"
+            logger.warning("ASR model %s timeout", model)
+        except Exception as e:
+            last_err = f"model={model} error={e}"
+            logger.warning("ASR model %s exception: %s", model, e)
+
+    raise HTTPException(502, f"All ASR models failed. Last: {last_err}")

@@ -88,16 +88,15 @@ function useVoice(backendUrl) {
         method: 'POST', body: fd,
         signal: AbortSignal.timeout(15000),
       });
-      if (!res.ok) return '';
-      const data = await res.json();
-      const text = data.text || data.transcript || '';
-      console.log('[AURA] STT cloud OK:', text);
-      setTranscript(text);
-      return text;
-    } catch (e) {
-      console.warn('[AURA] STT cloud failed:', e.message);
-      return '';
-    }
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.text || data.transcript || '';
+        if (text.trim()) { console.log('[AURA] STT cloud OK:', text); setTranscript(text); return text; }
+      }
+    } catch (e) { console.warn('[AURA] STT cloud failed:', e.message); }
+    // 3. Fallback: browser built-in SpeechRecognition (free, on-device)
+    console.log('[AURA] STT: trying browser SpeechRecognition fallback');
+    return '';
   }, [backendUrl]);
 
   const toggleRecording = useCallback(async () => {
@@ -157,7 +156,31 @@ function useVoice(backendUrl) {
     }
   }, [isRecording, analyze, sendToParakeet]);
 
-  return { isRecording, audioLevel, audioData, transcript, toggleRecording };
+  // ── Browser SpeechRecognition fallback (no server needed) ──────
+  const browserSTT = useCallback(() => {
+    return new Promise((resolve) => {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { resolve(''); return; }
+      const sr = new SR();
+      sr.continuous = false;
+      sr.interimResults = false;
+      sr.lang = 'en-US';
+      sr.maxAlternatives = 1;
+      const timeout = setTimeout(() => { try { sr.stop(); } catch {} resolve(''); }, 8000);
+      sr.onresult = (e) => {
+        clearTimeout(timeout);
+        const text = e.results[0]?.[0]?.transcript || '';
+        console.log('[AURA] STT browser fallback OK:', text);
+        setTranscript(text);
+        resolve(text);
+      };
+      sr.onerror = () => { clearTimeout(timeout); resolve(''); };
+      sr.onend = () => { clearTimeout(timeout); };
+      try { sr.start(); } catch { resolve(''); }
+    });
+  }, []);
+
+  return { isRecording, audioLevel, audioData, transcript, toggleRecording, browserSTT };
 }
 
 // ─── State Indicator ───────────────────────────────────────────────
@@ -498,13 +521,19 @@ export default function AuraChat({ onBack }) {
       setIsProcessing(false);
     }, 45000);
     try {
-      const transcript = await voice.toggleRecording();
+      let transcript = await voice.toggleRecording();
+      console.log('[AURA] STT backend transcript:', JSON.stringify(transcript));
+      // If backend STT failed, try browser built-in SpeechRecognition
+      if (!transcript || !transcript.trim()) {
+        console.log('[AURA] Backend STT empty — trying browser SpeechRecognition...');
+        transcript = await voice.browserSTT();
+        console.log('[AURA] STT browser transcript:', JSON.stringify(transcript));
+      }
       clearTimeout(safetyTimer);
-      console.log('[AURA] STT transcript:', JSON.stringify(transcript));
       if (transcript && transcript.trim()) {
         handleSendMessage(transcript.trim());
       } else {
-        // No transcript — restart listening
+        // No transcript from any source — restart listening
         if (autoListenRef.current) {
           setTimeout(() => startListening(), 500);
         } else {

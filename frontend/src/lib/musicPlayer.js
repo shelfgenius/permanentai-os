@@ -279,9 +279,12 @@ function _stopYTTime() { if (_ytTimeInterval) { clearInterval(_ytTimeInterval); 
 // ═══════════════════════════════════════════════════════════════════
 async function _checkLocal(url) {
   try {
-    const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch(`${url}/health`, { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(timer);
     if (r.ok) { const d = await r.json(); return d.service === 'nexus-yt-local'; }
-  } catch {}
+  } catch { /* YT server offline or CORS — silently skip */ }
   return false;
 }
 

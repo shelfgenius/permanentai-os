@@ -406,7 +406,26 @@ function GlbMesh({ url, obj, selected, dispatch, onError }) {
         child.receiveShadow = true;
         if (child.material) {
           child.material = child.material.clone();
+          // Force opaque — many generated GLBs arrive transparent
+          child.material.transparent = false;
+          child.material.opacity = 1.0;
+          child.material.depthWrite = true;
+          child.material.side = THREE.DoubleSide;
           child.material.envMapIntensity = 0.8;
+          // If color is black/missing, give a visible default
+          if (child.material.color) {
+            const c = child.material.color;
+            if (c.r + c.g + c.b < 0.05) {
+              child.material.color.setHex(0x6b7280);
+            }
+          }
+          child.material.needsUpdate = true;
+        } else {
+          // No material at all — apply a default
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0x6b7280, metalness: 0.4, roughness: 0.5,
+            side: THREE.DoubleSide, envMapIntensity: 0.8,
+          });
         }
       }
     });

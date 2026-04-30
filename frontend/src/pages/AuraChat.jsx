@@ -11,111 +11,141 @@ const AI_MODELS = [
   { value: 'auto', label: 'Auto' },
 ];
 
-// ─── Voice hook — Browser SpeechRecognition only ────────────────────────────
-// Uses ONLY browser SpeechRecognition (no getUserMedia/AudioContext competing
-// for the mic). Provides a simulated audio level for orb animation.
-function useVoice() {
+// ─── Voice hook — MediaRecorder + Backend Parakeet ASR ──────────────────────
+// Records audio via getUserMedia/MediaRecorder, sends to backend for
+// transcription. Uses AudioContext analyzer for real orb visualization.
+function useVoice(backendUrl) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioData, setAudioData] = useState(new Uint8Array(128));
   const [transcript, setTranscript] = useState('');
-  const recognitionRef = useRef(null);
-  const liveTranscriptRef = useRef('');
-  const pulseRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
 
-  // Simulated audio pulse while recording (for orb animation)
-  const startPulse = useCallback(() => {
-    let t = 0;
-    const tick = () => {
-      t += 0.12;
-      const level = 0.3 + 0.3 * Math.sin(t) + 0.15 * Math.sin(t * 2.7);
-      setAudioLevel(level);
-      const arr = new Uint8Array(128);
-      for (let i = 0; i < 128; i++) arr[i] = Math.floor((level + Math.random() * 0.15) * 200);
-      setAudioData(arr);
-      pulseRef.current = requestAnimationFrame(tick);
-    };
-    tick();
+  // Audio level analyzer for orb
+  const startAnalyzer = useCallback((stream) => {
+    try {
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new AudioContext();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const tick = () => {
+        const arr = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(arr);
+        setAudioLevel(arr.reduce((a, b) => a + b, 0) / arr.length / 255);
+        setAudioData(arr);
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) { console.warn('[AURA] Analyzer setup error:', e); }
   }, []);
 
-  const stopPulse = useCallback(() => {
-    if (pulseRef.current) cancelAnimationFrame(pulseRef.current);
+  const stopAnalyzer = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     setAudioLevel(0);
     setAudioData(new Uint8Array(128));
   }, []);
 
+  // Send audio blob to backend ASR
+  const transcribeAudio = useCallback(async (blob) => {
+    if (!backendUrl) { console.warn('[AURA] No backendUrl'); return ''; }
+    console.log('[AURA] Sending audio to ASR, size:', blob.size, 'type:', blob.type);
+    // 1. Cloud Parakeet ASR
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.webm');
+      const res = await fetch(`${backendUrl}/nvidia/asr`, {
+        method: 'POST', body: fd,
+        signal: AbortSignal.timeout(15000),
+      });
+      console.log('[AURA] ASR response:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.text || data.transcript || '';
+        if (text.trim()) { console.log('[AURA] ASR OK:', text); setTranscript(text); return text; }
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.warn('[AURA] ASR error response:', res.status, errText.slice(0, 200));
+      }
+    } catch (e) { console.warn('[AURA] ASR request failed:', e.message); }
+    // 2. Local Parakeet
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.webm');
+      const res = await fetch(`${backendUrl}/aura/voice/stt`, {
+        method: 'POST', body: fd,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.text || '';
+        if (text.trim()) { console.log('[AURA] Local STT OK:', text); setTranscript(text); return text; }
+      }
+    } catch (e) { console.log('[AURA] Local STT unavailable:', e.message); }
+    console.warn('[AURA] All ASR failed — no transcript');
+    return '';
+  }, [backendUrl]);
+
   const toggleRecording = useCallback(async () => {
-    console.log('[AURA] toggleRecording called, isRecording:', isRecording);
+    console.log('[AURA] toggleRecording, isRecording:', isRecording);
     if (isRecording) {
-      // ── Stop: end SpeechRecognition, return transcript ──
-      stopPulse();
+      // ── Stop recording → send to ASR ──
+      stopAnalyzer();
       setIsRecording(false);
       return new Promise((resolve) => {
-        const sr = recognitionRef.current;
-        if (!sr) {
-          console.log('[AURA] No SR ref, returning transcript:', liveTranscriptRef.current);
-          resolve(liveTranscriptRef.current);
-          return;
-        }
-        // Wait up to 600ms for final result after stopping
-        const timer = setTimeout(() => {
-          const text = liveTranscriptRef.current;
-          console.log('[AURA] STT final (timeout):', text);
-          recognitionRef.current = null;
-          resolve(text);
-        }, 600);
-        sr.onend = () => {
-          clearTimeout(timer);
-          const text = liveTranscriptRef.current;
-          console.log('[AURA] STT final (onend):', text);
-          recognitionRef.current = null;
+        const rec = mediaRecorderRef.current;
+        if (!rec || rec.state === 'inactive') { resolve(''); return; }
+        rec.onstop = async () => {
+          const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+          chunksRef.current = [];
+          console.log('[AURA] Recording stopped, blob size:', blob.size);
+          if (blob.size < 1000) { console.log('[AURA] Audio too short'); resolve(''); return; }
+          const text = await transcribeAudio(blob);
           resolve(text);
         };
-        try { sr.stop(); } catch { clearTimeout(timer); resolve(liveTranscriptRef.current); }
+        rec.stop();
       });
     } else {
-      // ── Start: launch SpeechRecognition only ──
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      console.log('[AURA] SpeechRecognition API available:', !!SR);
-      if (!SR) { console.warn('[AURA] No SpeechRecognition in this browser'); return ''; }
-
-      // Reset transcript
-      liveTranscriptRef.current = '';
-      setTranscript('');
-
+      // ── Start recording ──
       try {
-        const sr = new SR();
-        sr.continuous = true;
-        sr.interimResults = true;
-        sr.lang = 'en-US';
-        sr.maxAlternatives = 1;
-        sr.onresult = (e) => {
-          let final = '', interim = '';
-          for (let i = 0; i < e.results.length; i++) {
-            if (e.results[i].isFinal) final += e.results[i][0].transcript;
-            else interim += e.results[i][0].transcript;
-          }
-          liveTranscriptRef.current = (final + ' ' + interim).trim();
-          setTranscript(liveTranscriptRef.current);
-          console.log('[AURA] SR result:', liveTranscriptRef.current);
-        };
-        sr.onaudiostart = () => { console.log('[AURA] SR audiostart — mic is active'); };
-        sr.onspeechstart = () => { console.log('[AURA] SR speechstart — voice detected'); };
-        sr.onerror = (e) => { console.warn('[AURA] SR error:', e.error); };
-        sr.onend = () => { console.log('[AURA] SR ended naturally (while recording)'); };
-        recognitionRef.current = sr;
-        sr.start();
-        console.log('[AURA] SpeechRecognition started');
-
+        // Get mic stream (reuse if alive)
+        if (!streamRef.current || !streamRef.current.active) {
+          streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        const stream = streamRef.current;
+        chunksRef.current = [];
+        const rec = new MediaRecorder(stream);
+        mediaRecorderRef.current = rec;
+        rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+        rec.start();
         setIsRecording(true);
-        startPulse();
+        startAnalyzer(stream);
+        console.log('[AURA] Recording started, mimeType:', rec.mimeType);
         return '';
       } catch (e) {
-        console.warn('[AURA] SR start failed:', e);
+        console.warn('[AURA] Mic access failed:', e);
         return '';
       }
     }
-  }, [isRecording, startPulse, stopPulse]);
+  }, [isRecording, startAnalyzer, stopAnalyzer, transcribeAudio]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      audioCtxRef.current?.close().catch(() => {});
+    };
+  }, []);
 
   return { isRecording, audioLevel, audioData, transcript, toggleRecording };
 }
@@ -301,7 +331,7 @@ function FeatureCards() {
 // ═══════════════════════════════════════════════════════════════════
 export default function AuraChat({ onBack }) {
   const { backendUrl } = useStore();
-  const voice = useVoice();
+  const voice = useVoice(backendUrl);
   const stepId = useRef(0);
   const abortRef = useRef(null);
   const conversationRef = useRef([]);

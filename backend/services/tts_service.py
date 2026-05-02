@@ -71,8 +71,8 @@ class TTSService:
         if result:
             return result
 
-        # 2. ElevenLabs
-        result = await self._synth_elevenlabs(text, domain_key)
+        # 2. Edge TTS (Microsoft Neural, free, always works)
+        result = await self._synth_edge(text, domain_key)
         if result:
             return result
 
@@ -81,10 +81,9 @@ class TTSService:
         if result:
             return result
 
-        # 4. Edge TTS (Microsoft Neural, free)
-        result = await self._synth_edge(text, domain_key)
-        if result:
-            return result
+        # NOTE: ElevenLabs is called directly from the browser (bypasses
+        # Render's IP which gets flagged on the free tier). The backend
+        # elevenlabs_router.py serves the config for direct browser calls.
 
         logger.error("All TTS methods failed for: %r", text[:50])
         return b""

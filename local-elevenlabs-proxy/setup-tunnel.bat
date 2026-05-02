@@ -27,7 +27,7 @@ if %ERRORLEVEL% neq 0 (
     echo.
 )
 
-echo   Step 1: Starting ElevenLabs proxy on port 8765...
+echo   Step 1: Starting ElevenLabs proxy on port 8766...
 start "ElevenLabs Proxy" cmd /c "python server.py"
 timeout /t 3 /nobreak >nul
 

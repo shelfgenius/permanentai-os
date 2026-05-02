@@ -38,6 +38,10 @@ from typing import Optional, List
 logger = logging.getLogger("youtube_router")
 router = APIRouter(prefix="/youtube", tags=["youtube"])
 
+# ── Local yt-dlp proxy (Cloudflare tunnel to your machine) ──
+YT_LOCAL_PROXY = os.getenv("YT_LOCAL_PROXY_URL", "").strip().rstrip("/")
+# e.g. "https://yt.aura-ai.live"
+
 # Resolve yt-dlp: prefer CLI binary, fall back to python -m yt_dlp
 _ytdlp_cli = shutil.which("yt-dlp")
 if _ytdlp_cli:
@@ -489,6 +493,35 @@ async def _extract_with_piped(vid: str) -> dict:
     return {}
 
 
+async def _extract_via_local_proxy(vid: str) -> dict | None:
+    """Try extracting audio via the local yt-dlp proxy (your PC via tunnel)."""
+    if not YT_LOCAL_PROXY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            r = await client.get(f"{YT_LOCAL_PROXY}/info/{vid}")
+            if r.status_code != 200:
+                logger.warning("Local proxy info %d for %s", r.status_code, vid)
+                return None
+            info = r.json()
+            # Return stream URL pointing to local proxy (it handles caching + range)
+            stream_url = f"{YT_LOCAL_PROXY}/stream/{vid}"
+            return {
+                "audio_url": stream_url,
+                "title": info.get("title", ""),
+                "channel": info.get("channel", ""),
+                "duration": info.get("duration", 0),
+                "thumbnail": info.get("thumbnail", ""),
+                "video_id": vid,
+                "tags": [],
+                "ext": info.get("ext", "m4a"),
+                "source": "local-proxy",
+            }
+    except Exception as e:
+        logger.warning("Local proxy failed for %s: %s", vid, str(e)[:100])
+        return None
+
+
 @router.post("/play")
 async def youtube_play(req: PlayRequest):
     """Get a direct audio stream URL for a YouTube video."""
@@ -501,7 +534,14 @@ async def youtube_play(req: PlayRequest):
         logger.info("Play cache hit: %s", vid)
         return cached
 
-    # ── Attempt 1: yt-dlp ────────────────────────────────────
+    # ── Attempt 0: Local proxy (your PC via Cloudflare tunnel) ──
+    local = await _extract_via_local_proxy(vid)
+    if local:
+        logger.info("Play via local proxy: %s", vid)
+        _cache_set(_url_cache, vid, local)
+        return local
+
+    # ── Attempt 1: yt-dlp on server ────────────────────────────
     url = f"https://www.youtube.com/watch?v={vid}"
     audio_url = ""
     j = {}
@@ -563,8 +603,21 @@ async def youtube_stream(video_id: str):
     if not re.match(r'^[A-Za-z0-9_-]{11}$', vid):
         raise HTTPException(400, "Invalid video ID")
 
-    # Reuse cached audio URL from /play endpoint, or extract fresh
+    # ── Local proxy: redirect stream directly ──
     cached = _cache_get(_url_cache, vid)
+    if cached and cached.get("source") == "local-proxy":
+        # Redirect to local proxy stream
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(f"{YT_LOCAL_PROXY}/stream/{vid}", status_code=307)
+
+    if not cached and YT_LOCAL_PROXY:
+        local = await _extract_via_local_proxy(vid)
+        if local:
+            _cache_set(_url_cache, vid, local)
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(f"{YT_LOCAL_PROXY}/stream/{vid}", status_code=307)
+
+    # Reuse cached audio URL from /play endpoint, or extract fresh
     if cached:
         audio_url = cached.get("audio_url", "")
     else:
@@ -818,4 +871,5 @@ async def youtube_status():
         "total_keys": len(YT_API_KEYS),
         "search_cache_size": len(_search_cache),
         "url_cache_size": len(_url_cache),
+        "local_proxy": YT_LOCAL_PROXY or None,
     }

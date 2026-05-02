@@ -137,5 +137,5 @@ if __name__ == "__main__":
     print(f"  API Key: ...{API_KEY[-8:]}")
     print(f"  Voice EN: {VOICE_EN}")
     print(f"  Voice RO: {VOICE_RO}")
-    print(f"  Running on http://localhost:8765\n")
-    uvicorn.run(app, host="0.0.0.0", port=8765)
+    print(f"  Running on http://localhost:8766\n")
+    uvicorn.run(app, host="0.0.0.0", port=8766)

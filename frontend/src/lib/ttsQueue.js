@@ -68,6 +68,34 @@ function _enqueueAudioChunk(arrayBuffer) {
   }
 }
 
+// ── ElevenLabs direct config (fetched once from backend) ────────
+let _elConfig = null;       // { key, voice_en, voice_ro, model, output_format }
+let _elConfigFetched = false;
+
+// Romanian detection — simple client-side check
+const _RO_RE = /[ăâîșțĂÂÎȘȚ]/;
+const _RO_WORDS = /\b(și|este|sunt|pentru|care|sau|dar|cum|unde|când|ce|nu|da|bine|foarte|acest|această|prin|acum|aici|trebuie)\b/i;
+function _detectLang(text) {
+  if (_RO_RE.test(text)) return 'ro';
+  const hits = (text.match(new RegExp(_RO_WORDS.source, 'gi')) || []).length;
+  if (hits / Math.max(text.split(/\s+/).length, 1) > 0.08) return 'ro';
+  return 'en';
+}
+
+async function _getElConfig(base) {
+  if (_elConfig) return _elConfig;
+  if (_elConfigFetched) return null; // already tried and failed
+  _elConfigFetched = true;
+  try {
+    const res = await fetch(`${base}/elevenlabs/config`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      _elConfig = await res.json();
+      return _elConfig;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // ── Text utterance queue (serialises TTS requests) ──────────────
 const _queue = [];            // { text, backendUrl, resolve }
 let _processing = false;
@@ -82,23 +110,37 @@ async function _processNext() {
   try {
     let streamed = false;
 
-    // ── 1. ElevenLabs TTS (primary — sentence-aware, language-auto) ──
+    // ── 1. ElevenLabs DIRECT from browser (bypasses Render IP) ──
     if (!streamed) {
       try {
-        const res = await fetch(`${base}/elevenlabs/tts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
-          signal: AbortSignal.timeout(30000),
-        });
-        if (res.ok) {
-          const blob = await res.blob();
-          if (blob.size > 100) {
-            _enqueueAudioChunk(await blob.arrayBuffer());
-            streamed = true;
+        const cfg = await _getElConfig(base);
+        if (cfg?.key) {
+          const lang = _detectLang(text);
+          const voiceId = lang === 'ro' ? cfg.voice_ro : cfg.voice_en;
+          const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+            method: 'POST',
+            headers: {
+              'xi-api-key': cfg.key,
+              'Content-Type': 'application/json',
+              'Accept': 'audio/mpeg',
+            },
+            body: JSON.stringify({
+              text,
+              model_id: cfg.model || 'eleven_v3',
+              output_format: cfg.output_format || 'mp3_44100_128',
+              voice_settings: { stability: 0.6, similarity_boost: 0.8 },
+            }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            if (blob.size > 100) {
+              _enqueueAudioChunk(await blob.arrayBuffer());
+              streamed = true;
+            }
           }
         }
-      } catch (_) { /* ElevenLabs unavailable */ }
+      } catch (_) { /* direct ElevenLabs failed */ }
     }
 
     // ── 2. NVIDIA cloud Magpie TTS (fallback) ──

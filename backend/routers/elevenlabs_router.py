@@ -235,6 +235,25 @@ async def elevenlabs_stt(audio: UploadFile = File(...)):
         raise HTTPException(502, f"ElevenLabs STT failed: {e}")
 
 
+# ── Config endpoint (for direct browser calls) ──────────────────
+@router.get("/config")
+async def elevenlabs_config():
+    """
+    Return ElevenLabs config so the frontend can call the API directly
+    from the browser. This bypasses Render's IP which gets flagged on
+    the free tier. The browser's own IP won't be flagged.
+    """
+    if not API_KEY:
+        raise HTTPException(503, "ELEVENLABS_API_KEY not configured")
+    return {
+        "key": API_KEY,
+        "voice_en": VOICE_EN,
+        "voice_ro": VOICE_RO,
+        "model": MODEL_ID,
+        "output_format": OUTPUT_FMT,
+    }
+
+
 # ── Status endpoint ──────────────────────────────────────────────
 @router.get("/status")
 async def elevenlabs_status():

@@ -4,6 +4,7 @@ import { ArrowLeft, Mic, MicOff, Search, Presentation, Sparkles, Send, X, User, 
 import useStore from '../store/useStore';
 import { useMusicPlayer, fmtTime } from '../lib/musicPlayer';
 import { enqueueSpeak, clearTtsQueue, isTtsSpeaking } from '../lib/ttsQueue';
+import { parseAuraCommand, executeAuraCommand } from '../lib/auraRouter';
 import AuraOrbCanvas from '../components/aura/AuraOrb';
 
 const AI_MODELS = [
@@ -405,6 +406,28 @@ export default function AuraChat({ onBack }) {
     conversationRef.current.push({ role: 'user', content: message });
 
     addStep('Analyzing user query...');
+
+    // ── Aura Command Router — intercept commands for other apps ──
+    const cmd = parseAuraCommand(message);
+    if (cmd) {
+      addStep(`Routing to ${cmd.app}: ${cmd.action}`);
+      const assistantCmdMsg = { id: userMsgId + 1, role: 'assistant', content: cmd.spokenResponse, timestamp: new Date() };
+      setChatMessages(prev => [...prev, assistantCmdMsg]);
+      conversationRef.current.push({ role: 'assistant', content: cmd.spokenResponse });
+      setOrbState('speaking');
+
+      executeAuraCommand(cmd, {
+        navigate: (path) => { window.location.href = path; },
+        onSpeak: (text) => enqueueSpeak(text, backendUrl),
+        onMusicAction: (action) => {
+          if (action === 'stop') { /* handled by music player */ }
+        },
+      });
+
+      setIsProcessing(false);
+      setOrbState('standby');
+      return;
+    }
 
     const assistantMsgId = userMsgId + 1;
     setChatMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', timestamp: new Date() }]);

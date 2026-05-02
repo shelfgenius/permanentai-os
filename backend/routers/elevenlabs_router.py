@@ -29,8 +29,13 @@ API_KEY   = os.getenv("ELEVENLABS_API_KEY", "").strip()
 VOICE_EN  = os.getenv("ELEVENLABS_VOICE_EN", "DvA6jVPzwhTAbLWwZd0K").strip()  # Irish woman
 VOICE_RO  = os.getenv("ELEVENLABS_VOICE_RO", "urzoE6aZYmSRdFQ6215h").strip()  # Romanian woman
 
-TTS_URL   = "https://api.elevenlabs.io/v1/text-to-speech"
-STT_URL   = "https://api.elevenlabs.io/v1/speech-to-text"
+# Local proxy URL — if set, all TTS/STT calls go through your local machine
+# instead of Render calling ElevenLabs directly (which gets 401 flagged).
+# Run local-elevenlabs-proxy/server.py on your PC, expose via ngrok, set this env var.
+PROXY_URL = os.getenv("ELEVENLABS_PROXY_URL", "").strip()
+
+TTS_URL   = f"{PROXY_URL}/tts" if PROXY_URL else "https://api.elevenlabs.io/v1/text-to-speech"
+STT_URL   = f"{PROXY_URL}/stt" if PROXY_URL else "https://api.elevenlabs.io/v1/speech-to-text"
 
 MODEL_ID  = "eleven_v3"
 OUTPUT_FMT = "mp3_44100_128"
@@ -161,34 +166,46 @@ async def elevenlabs_tts(req: TtsRequest):
 
     # Generate audio for each sentence, concatenate
     audio_chunks = []
-    # 150ms silence at 44100Hz mono MP3 — roughly 1.6KB of silence
-    # We'll use the API's natural gap instead of synthetic silence
-
-    headers = {
-        "xi-api-key": API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg",
-    }
 
     async with httpx.AsyncClient(timeout=60) as client:
         for i, sentence in enumerate(sentences):
             if not sentence.strip():
                 continue
-            payload = {
-                "text": sentence,
-                "model_id": MODEL_ID,
-                "output_format": OUTPUT_FMT,
-                "voice_settings": {
-                    "stability": 0.6,
-                    "similarity_boost": 0.8,
-                },
-            }
+
             try:
-                r = await client.post(
-                    f"{TTS_URL}/{voice_id}",
-                    headers=headers,
-                    json=payload,
-                )
+                if PROXY_URL:
+                    # ── Local proxy mode ──
+                    # Send to local proxy which calls ElevenLabs from your PC's IP
+                    r = await client.post(
+                        f"{PROXY_URL}/tts",
+                        json={
+                            "text": sentence,
+                            "voice": voice_id,
+                            "language": lang,
+                        },
+                    )
+                else:
+                    # ── Direct ElevenLabs API ──
+                    headers = {
+                        "xi-api-key": API_KEY,
+                        "Content-Type": "application/json",
+                        "Accept": "audio/mpeg",
+                    }
+                    payload = {
+                        "text": sentence,
+                        "model_id": MODEL_ID,
+                        "output_format": OUTPUT_FMT,
+                        "voice_settings": {
+                            "stability": 0.6,
+                            "similarity_boost": 0.8,
+                        },
+                    }
+                    r = await client.post(
+                        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                        headers=headers,
+                        json=payload,
+                    )
+
                 if r.status_code == 200:
                     audio_chunks.append(r.content)
                     logger.debug("Sentence %d OK: %d bytes", i, len(r.content))
@@ -270,6 +287,7 @@ async def elevenlabs_config():
         "voice_ro": VOICE_RO,
         "model": MODEL_ID,
         "output_format": OUTPUT_FMT,
+        "proxy_url": PROXY_URL or None,
     }
 
 
@@ -279,6 +297,8 @@ async def elevenlabs_status():
     """Check ElevenLabs configuration."""
     return {
         "configured": bool(API_KEY),
+        "proxy_active": bool(PROXY_URL),
+        "proxy_url": PROXY_URL or None,
         "voice_en": VOICE_EN,
         "voice_ro": VOICE_RO,
         "model": MODEL_ID,

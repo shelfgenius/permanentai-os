@@ -16,6 +16,7 @@ import {
 import * as THREE from 'three';
 import useStore from '../store/useStore.js';
 import VoiceOrb from '../components/VoiceOrb.jsx';
+import { consumeAuraCommand } from '../lib/auraRouter.js';
 import DeepResearchPanel from '../components/DeepResearchPanel.jsx';
 import {
   ArrowLeft, Send, Sparkles, Mic, BookOpen,
@@ -924,6 +925,8 @@ function Workspace({ onBack }) {
     return () => window.removeEventListener('keydown', h);
   }, [dispatch]);
 
+  const auraHandled = useRef(false);
+
   const handleGenerate = useCallback(async (prompt) => {
     if (!prompt.trim()) return;
     rawDispatch({ type: 'GEN', v: true });
@@ -991,6 +994,16 @@ function Workspace({ onBack }) {
       });
     }, 600);
   }, [backendUrl, dispatch, rawDispatch]);
+
+  // Pick up Aura commands (e.g. "create 3d model of a dragon")
+  useEffect(() => {
+    if (auraHandled.current) return;
+    const cmd = consumeAuraCommand('sculpt');
+    if (cmd?.params?.prompt) {
+      auraHandled.current = true;
+      setTimeout(() => handleGenerate(cmd.params.prompt), 500);
+    }
+  }, [handleGenerate]);
 
   return (
     <div className="sc-root" style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

@@ -15,6 +15,7 @@ import SceneActivationOverlay from '../components/nexus/scenes/SceneActivationOv
 import VoiceOrb from '../components/VoiceOrb.jsx';
 import NexusSetupPanel from '../components/nexus/NexusSetupPanel.jsx';
 import useStore from '../store/useStore.js';
+import { consumeAuraCommand } from '../lib/auraRouter.js';
 import '../components/nexus/nexus.css';
 
 const MONO = '"Space Mono", "IBM Plex Mono", monospace';
@@ -625,6 +626,27 @@ function NexusHubInner({ onBack }) {
   const handleHover = useCallback((id) => { setHovered(id); document.body.style.cursor = 'pointer'; }, []);
   const handleLeave = useCallback(() => { setHovered(null); document.body.style.cursor = ''; }, []);
   const handleClick = useCallback((id) => { setActiveDevice(id); setHovered(null); document.body.style.cursor = ''; }, []);
+
+  // Pick up Aura voice commands (e.g. "AC off", "lights on", "set temp 22")
+  useEffect(() => {
+    const cmd = consumeAuraCommand('nexus');
+    if (!cmd) return;
+    switch (cmd.action) {
+      case 'ac_control':
+        dispatch({ type: 'AC_TOGGLE_POWER' });
+        break;
+      case 'set_temperature':
+        if (cmd.params.temperature) dispatch({ type: 'AC_SET_TEMP', payload: cmd.params.temperature });
+        break;
+      case 'lights_control':
+        dispatch({ type: 'LIGHTS_TOGGLE_MASTER' });
+        break;
+      case 'tv_control':
+        dispatch({ type: 'TV_TOGGLE_POWER' });
+        break;
+      default: break;
+    }
+  }, [dispatch]);
 
   const ActiveCard = activeDevice ? CARD_MAP[activeDevice] : null;
   const activeDef = activeDevice ? DEVICE_DEFS.find(d => d.id === activeDevice) : null;

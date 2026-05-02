@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import useStore from '../store/useStore.js';
 import VoiceOrb from '../components/VoiceOrb.jsx';
+import { consumeAuraCommand } from '../lib/auraRouter.js';
 
 /* ═══════════════════════════════════════════════════════════
    STYLES — injected once
@@ -102,6 +103,30 @@ const GALLERY_IMAGES = [
 ];
 
 const HERO_IMAGES = ['/hero-1.jpg', '/hero-2.jpg', '/hero-3.jpg'];
+
+/* ── Prompt Enhancement (from Open-GenAI) ─────────────────── */
+const ENHANCE_TAGS = {
+  quality: ['professional photography', 'ultra-detailed', '8K resolution', 'high dynamic range', 'award-winning'],
+  lighting: ['cinematic lighting', 'golden hour', 'dramatic studio lighting', 'soft diffused light', 'volumetric rays'],
+  mood: ['moody atmosphere', 'serene and peaceful', 'epic and dramatic', 'warm and cozy', 'dark and mysterious'],
+};
+
+const QUICK_PROMPTS = [
+  { label: 'Portrait', prompt: 'Professional portrait photograph, shallow depth of field, soft studio lighting, 85mm lens' },
+  { label: 'Landscape', prompt: 'Breathtaking landscape photograph, golden hour, wide angle, dramatic clouds, 4K' },
+  { label: 'Product', prompt: 'Commercial product photography, clean white background, studio lighting, professional' },
+  { label: 'Fantasy', prompt: 'Epic fantasy scene, magical atmosphere, volumetric lighting, highly detailed, concept art' },
+  { label: 'Sci-Fi', prompt: 'Futuristic sci-fi environment, neon lights, cyberpunk city, rain reflections, cinematic' },
+  { label: 'Food', prompt: 'Professional food photography, appetizing, warm lighting, shallow depth of field, editorial' },
+  { label: 'Architecture', prompt: 'Architectural photography, dramatic angles, clean lines, modern design, professional' },
+  { label: 'Fashion', prompt: 'High fashion editorial, avant-garde styling, studio lighting, Vogue aesthetic, professional' },
+];
+
+function enhancePrompt(prompt, category = 'quality') {
+  const tags = ENHANCE_TAGS[category] || ENHANCE_TAGS.quality;
+  const picked = tags.slice(0, 3).join(', ');
+  return `${prompt}, ${picked}`;
+}
 
 /* ═══════════════════════════════════════════════════════════
    STATE
@@ -315,6 +340,18 @@ function CreationPanel() {
             style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: state.enhancedPrompt ? 'rgba(226,184,103,.15)' : '#141417', color: state.enhancedPrompt ? ACCENT : '#8A8A96', border: `1px solid ${state.enhancedPrompt ? 'rgba(226,184,103,.3)' : 'rgba(255,255,255,.08)'}`, cursor: 'pointer' }}>
             <Sparkles size={14} /> Enhance prompt
           </button>
+
+          {/* Quick Prompts */}
+          <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {QUICK_PROMPTS.map(qp => (
+              <button key={qp.label} onClick={() => dispatch({ type: 'SET_PROMPT', v: qp.prompt })}
+                style={{ padding: '4px 10px', borderRadius: 16, fontSize: 11, fontWeight: 500, background: '#141417', color: '#8A8A96', border: '1px solid rgba(255,255,255,.08)', cursor: 'pointer', transition: 'all .15s' }}
+                onMouseEnter={e => { e.target.style.borderColor = ACCENT; e.target.style.color = ACCENT; }}
+                onMouseLeave={e => { e.target.style.borderColor = 'rgba(255,255,255,.08)'; e.target.style.color = '#8A8A96'; }}>
+                {qp.label}
+              </button>
+            ))}
+          </div>
 
           {/* Settings Drawer */}
           <div style={{ marginTop: 24, background: '#141417', borderRadius: 12, border: '1px solid rgba(255,255,255,.08)', overflow: 'hidden' }}>
@@ -659,6 +696,14 @@ export default function CanvasHub({ onBack }) {
   const { backendUrl } = useStore();
   const [state, dispatch] = useReducer(reducer, INIT);
 
+  // Pick up Aura commands (e.g. "create image of a sunset")
+  useEffect(() => {
+    const cmd = consumeAuraCommand('canvas');
+    if (cmd?.params?.prompt) {
+      dispatch({ type: 'SET_PROMPT', v: cmd.params.prompt });
+    }
+  }, []);
+
   // Real backend generation
   const generate = useCallback(async () => {
     if (!state.prompt.trim() || state.isGenerating) return;
@@ -671,7 +716,7 @@ export default function CanvasHub({ onBack }) {
       .map(s => s.suffix)
       .join('');
     const fullPrompt = state.enhancedPrompt
-      ? state.prompt + ', highly detailed, cinematic lighting, 8k, sharp focus' + styleSuffix
+      ? enhancePrompt(state.prompt) + styleSuffix
       : state.prompt + styleSuffix;
 
     const ar = ASPECT_RATIOS.find(a => a.value === state.aspectRatio) || ASPECT_RATIOS[0];

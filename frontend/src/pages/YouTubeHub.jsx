@@ -10,6 +10,7 @@ import {
 import useStore from '../store/useStore.js';
 import useAuth from '../store/useAuth.js';
 import { useMusicPlayer, fmtTime, getLocalUrl } from '../lib/musicPlayer.js';
+import { consumeAuraCommand } from '../lib/auraRouter.js';
 
 const ACCENT = '#FF0000';
 
@@ -528,6 +529,7 @@ export default function YouTubeHub({ onBack }) {
   const [activeTab, setActiveTab] = useState('home');
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const auraHandled = useRef(false);
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
@@ -631,6 +633,18 @@ export default function YouTubeHub({ onBack }) {
     setQuery(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (val.trim().length >= 2) debounceRef.current = setTimeout(() => doSearch(val), 400);
+  }, [doSearch]);
+
+  // ── Pick up Aura voice commands (e.g. "play Shape of You") ──
+  useEffect(() => {
+    if (auraHandled.current) return;
+    const cmd = consumeAuraCommand('youtube');
+    if (cmd?.params?.query) {
+      auraHandled.current = true;
+      setQuery(cmd.params.query);
+      setSearchOpen(true);
+      setTimeout(() => doSearch(cmd.params.query), 300);
+    }
   }, [doSearch]);
 
   // ── Related + affinity on track change ────────────────

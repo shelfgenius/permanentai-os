@@ -55,29 +55,43 @@ function useVoice(backendUrl) {
     setAudioData(new Uint8Array(128));
   }, []);
 
-  // Send audio blob to backend ASR
+  // Fetch ElevenLabs config once for direct browser STT
+  const elConfigRef = useRef(null);
+  const elConfigFetchedRef = useRef(false);
+
+  // Send audio blob to ASR
   const transcribeAudio = useCallback(async (blob) => {
     if (!backendUrl) { console.warn('[AURA] No backendUrl'); return ''; }
     console.log('[AURA] Sending audio to ASR, size:', blob.size, 'type:', blob.type);
-    // 1. ElevenLabs STT (primary)
+
+    // 1. ElevenLabs STT DIRECT from browser (bypasses Render IP)
     try {
-      const fd = new FormData();
-      fd.append('audio', blob, 'recording.webm');
-      const res = await fetch(`${backendUrl}/elevenlabs/stt`, {
-        method: 'POST', body: fd,
-        signal: AbortSignal.timeout(20000),
-      });
-      console.log('[AURA] ElevenLabs STT response:', res.status);
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.text || '';
-        if (text.trim()) { console.log('[AURA] ElevenLabs STT OK:', text); setTranscript(text); return text; }
-      } else {
-        const errText = await res.text().catch(() => '');
-        console.warn('[AURA] ElevenLabs STT error:', res.status, errText.slice(0, 200));
+      if (!elConfigRef.current && !elConfigFetchedRef.current) {
+        elConfigFetchedRef.current = true;
+        const cfgRes = await fetch(`${backendUrl}/elevenlabs/config`, { signal: AbortSignal.timeout(5000) });
+        if (cfgRes.ok) elConfigRef.current = await cfgRes.json();
       }
-    } catch (e) { console.warn('[AURA] ElevenLabs STT failed:', e.message); }
-    // 2. Groq/NVIDIA fallback
+      const cfg = elConfigRef.current;
+      if (cfg?.key) {
+        const fd = new FormData();
+        fd.append('file', blob, 'recording.webm');
+        fd.append('model_id', 'scribe_v1');
+        const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+          method: 'POST',
+          headers: { 'xi-api-key': cfg.key },
+          body: fd,
+          signal: AbortSignal.timeout(20000),
+        });
+        console.log('[AURA] ElevenLabs direct STT:', res.status);
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.text || '';
+          if (text.trim()) { console.log('[AURA] ElevenLabs STT OK:', text); setTranscript(text); return text; }
+        }
+      }
+    } catch (e) { console.warn('[AURA] ElevenLabs direct STT failed:', e.message); }
+
+    // 2. Groq/NVIDIA fallback (always works)
     try {
       const fd = new FormData();
       fd.append('audio', blob, 'recording.webm');
@@ -85,13 +99,13 @@ function useVoice(backendUrl) {
         method: 'POST', body: fd,
         signal: AbortSignal.timeout(15000),
       });
-      console.log('[AURA] Fallback ASR response:', res.status);
+      console.log('[AURA] Groq ASR response:', res.status);
       if (res.ok) {
         const data = await res.json();
         const text = data.text || data.transcript || '';
-        if (text.trim()) { console.log('[AURA] Fallback ASR OK:', text); setTranscript(text); return text; }
+        if (text.trim()) { console.log('[AURA] Groq ASR OK:', text); setTranscript(text); return text; }
       }
-    } catch (e) { console.warn('[AURA] Fallback ASR failed:', e.message); }
+    } catch (e) { console.warn('[AURA] Groq ASR failed:', e.message); }
     console.warn('[AURA] All STT failed — no transcript');
     return '';
   }, [backendUrl]);

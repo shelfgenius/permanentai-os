@@ -72,13 +72,39 @@ function _enqueueAudioChunk(arrayBuffer) {
 let _elConfig = null;       // { key, voice_en, voice_ro, model, output_format }
 let _elConfigFetched = false;
 
-// Romanian detection — simple client-side check
-const _RO_RE = /[ăâîșțĂÂÎȘȚ]/;
-const _RO_WORDS = /\b(și|este|sunt|pentru|care|sau|dar|cum|unde|când|ce|nu|da|bine|foarte|acest|această|prin|acum|aici|trebuie)\b/i;
+// Romanian detection — handles text with AND without diacritics
+const _RO_DIACRITICS = /[ăâîșțĂÂÎȘȚ]/;
+const _RO_WORDS_RE = new RegExp(
+  '\\b(' +
+  // Common Romanian words (with and without diacritics)
+  'si|și|este|sunt|sunt|pentru|care|sau|dar|cum|unde|cand|când|' +
+  'ce|nu|da|bine|foarte|acest|aceasta|această|prin|acum|aici|' +
+  'trebuie|poate|atunci|acolo|doar|despre|avea|face|spune|merge|' +
+  'lucru|insa|însă|daca|dacă|ori|fie|nici|mai|tot|din|' +
+  'la|de|cu|pe|in|în|le|se|va|ne|te|ma|mă|' +
+  'unui|unei|unor|cele|cel|cea|cei|ale|lui|lor|' +
+  'putea|vreau|vrei|vrea|vrem|vreti|vor|' +
+  'am|ai|are|avem|aveti|au|era|eram|erai|erau|' +
+  'fost|fac|faci|facem|faceti|faci|' +
+  'asta|asta|astea|astia|acestea|acestia|' +
+  'undeva|nicaieri|nicăieri|oriunde|' +
+  'buna|bună|salut|multumesc|mulțumesc|' +
+  'stiu|știu|stii|știi|stie|știe|' +
+  'cum|cat|cât|cati|câți|cate|câte|' +
+  'mai|mult|multa|multă|multi|mulți|multe|' +
+  'frumos|frumoasa|frumoasă|mare|mic|mica|mică|' +
+  'timp|casa|casă|om|oameni|copil|copii|' +
+  'lucrez|lucrezi|lucreaza|lucrează|' +
+  'Romania|România|roman|român|romana|română|romanesc|românesc|' +
+  'limba|limbă|vorbesc|vorbeste|vorbește' +
+  ')\\b', 'gi'
+);
 function _detectLang(text) {
-  if (_RO_RE.test(text)) return 'ro';
-  const hits = (text.match(new RegExp(_RO_WORDS.source, 'gi')) || []).length;
-  if (hits / Math.max(text.split(/\s+/).length, 1) > 0.08) return 'ro';
+  if (_RO_DIACRITICS.test(text)) return 'ro';
+  const hits = (text.match(_RO_WORDS_RE) || []).length;
+  const wordCount = Math.max(text.split(/\s+/).length, 1);
+  // Lower threshold: if >5% of words are Romanian, or >3 Romanian words in short text
+  if (hits / wordCount > 0.05 || (hits >= 3 && wordCount < 30)) return 'ro';
   return 'en';
 }
 

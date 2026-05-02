@@ -36,13 +36,31 @@ MODEL_ID  = "eleven_v3"
 OUTPUT_FMT = "mp3_44100_128"
 
 # ── Language detection ────────────────────────────────────────────
-# Romanian-specific diacritics and common words
 _RO_CHARS = re.compile(r'[ăâîșțĂÂÎȘȚ]')
 _RO_WORDS = re.compile(
-    r'\b(și|este|sunt|pentru|care|sau|dar|cum|unde|când|'
-    r'ce|nu|da|bine|foarte|acest|această|prin|'
-    r'avea|face|spune|merge|lucru|despre|doar|'
-    r'acum|aici|acolo|atunci|poate|trebuie)\b',
+    r'\b('
+    # Core Romanian words (with and without diacritics)
+    r'si|și|este|sunt|pentru|care|sau|dar|cum|unde|cand|când|'
+    r'ce|nu|da|bine|foarte|acest|aceasta|această|prin|acum|aici|'
+    r'trebuie|poate|atunci|acolo|doar|despre|avea|face|spune|merge|'
+    r'lucru|insa|însă|daca|dacă|ori|fie|nici|mai|tot|din|'
+    r'la|de|cu|pe|le|se|va|ne|te|ma|mă|'
+    r'unui|unei|unor|cele|cel|cea|cei|ale|lui|lor|'
+    r'putea|vreau|vrei|vrea|vrem|vreti|vor|'
+    r'am|ai|are|avem|aveti|au|era|eram|erai|erau|'
+    r'fost|fac|faci|facem|faceti|'
+    r'asta|astea|astia|acestea|acestia|'
+    r'undeva|nicaieri|nicăieri|oriunde|'
+    r'buna|bună|salut|multumesc|mulțumesc|'
+    r'stiu|știu|stii|știi|stie|știe|'
+    r'cat|cât|cati|câți|cate|câte|'
+    r'mult|multa|multă|multi|mulți|multe|'
+    r'frumos|frumoasa|frumoasă|mare|mic|mica|mică|'
+    r'timp|casa|casă|om|oameni|copil|copii|'
+    r'lucrez|lucrezi|lucreaza|lucrează|'
+    r'Romania|România|roman|român|romana|română|romanesc|românesc|'
+    r'limba|limbă|vorbesc|vorbeste|vorbește'
+    r')\b',
     re.IGNORECASE,
 )
 
@@ -53,7 +71,8 @@ def _detect_language(text: str) -> str:
         return "ro"
     ro_hits = len(_RO_WORDS.findall(text))
     word_count = max(len(text.split()), 1)
-    if ro_hits / word_count > 0.08:
+    # Lower threshold + absolute count for short texts
+    if ro_hits / word_count > 0.05 or (ro_hits >= 3 and word_count < 30):
         return "ro"
     return "en"
 

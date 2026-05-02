@@ -59,7 +59,25 @@ function useVoice(backendUrl) {
   const transcribeAudio = useCallback(async (blob) => {
     if (!backendUrl) { console.warn('[AURA] No backendUrl'); return ''; }
     console.log('[AURA] Sending audio to ASR, size:', blob.size, 'type:', blob.type);
-    // 1. Cloud Parakeet ASR
+    // 1. ElevenLabs STT (primary)
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'recording.webm');
+      const res = await fetch(`${backendUrl}/elevenlabs/stt`, {
+        method: 'POST', body: fd,
+        signal: AbortSignal.timeout(20000),
+      });
+      console.log('[AURA] ElevenLabs STT response:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.text || '';
+        if (text.trim()) { console.log('[AURA] ElevenLabs STT OK:', text); setTranscript(text); return text; }
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.warn('[AURA] ElevenLabs STT error:', res.status, errText.slice(0, 200));
+      }
+    } catch (e) { console.warn('[AURA] ElevenLabs STT failed:', e.message); }
+    // 2. Groq/NVIDIA fallback
     try {
       const fd = new FormData();
       fd.append('audio', blob, 'recording.webm');
@@ -67,31 +85,14 @@ function useVoice(backendUrl) {
         method: 'POST', body: fd,
         signal: AbortSignal.timeout(15000),
       });
-      console.log('[AURA] ASR response:', res.status);
+      console.log('[AURA] Fallback ASR response:', res.status);
       if (res.ok) {
         const data = await res.json();
         const text = data.text || data.transcript || '';
-        if (text.trim()) { console.log('[AURA] ASR OK:', text); setTranscript(text); return text; }
-      } else {
-        const errText = await res.text().catch(() => '');
-        console.warn('[AURA] ASR error response:', res.status, errText.slice(0, 200));
+        if (text.trim()) { console.log('[AURA] Fallback ASR OK:', text); setTranscript(text); return text; }
       }
-    } catch (e) { console.warn('[AURA] ASR request failed:', e.message); }
-    // 2. Local Parakeet
-    try {
-      const fd = new FormData();
-      fd.append('audio', blob, 'recording.webm');
-      const res = await fetch(`${backendUrl}/aura/voice/stt`, {
-        method: 'POST', body: fd,
-        signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.text || '';
-        if (text.trim()) { console.log('[AURA] Local STT OK:', text); setTranscript(text); return text; }
-      }
-    } catch (e) { console.log('[AURA] Local STT unavailable:', e.message); }
-    console.warn('[AURA] All ASR failed — no transcript');
+    } catch (e) { console.warn('[AURA] Fallback ASR failed:', e.message); }
+    console.warn('[AURA] All STT failed — no transcript');
     return '';
   }, [backendUrl]);
 
@@ -447,22 +448,19 @@ export default function AuraChat({ onBack }) {
               fullText += token;
               sentenceBuf += token;
               setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m));
-              // Flush to TTS only at real sentence boundaries:
-              // - period/exclamation/question followed by space+uppercase (new sentence)
-              // - newline (paragraph break)
-              // - colon followed by newline (heading-like)
-              // Minimum 30 chars prevents flushing tiny fragments
-              const isSentenceEnd = /[.!?]["')»]?\s+[A-Z]/.test(sentenceBuf)
-                || /[.!?]["')»]?\s*\n/.test(sentenceBuf)
-                || /:\s*\n/.test(sentenceBuf);
-              if (isSentenceEnd && sentenceBuf.trim().length > 30) {
-                // Split at the last sentence boundary and flush everything before it
+              // Flush to TTS at sentence boundaries.
+              // Backend handles sub-sentence splitting, abbreviations, etc.
+              // We accumulate ~2-3 sentences before flushing for natural flow.
+              const hasBoundary = /[.!?]["')»]?\s+[A-Z]/.test(sentenceBuf)
+                || /[.!?]["')»]?\s*\n/.test(sentenceBuf);
+              if (hasBoundary && sentenceBuf.trim().length > 60) {
+                // Find the last sentence boundary and flush everything up to it
                 const splitMatch = sentenceBuf.match(/^([\s\S]*[.!?]["')»]?\s)(\s*[A-Z][\s\S]*)$/);
                 if (splitMatch) {
-                  enqueueSpeak(splitMatch[1].trim(), backendUrl, 'general', 'aura');
+                  enqueueSpeak(splitMatch[1].trim(), backendUrl);
                   sentenceBuf = splitMatch[2];
                 } else {
-                  enqueueSpeak(sentenceBuf.trim(), backendUrl, 'general', 'aura');
+                  enqueueSpeak(sentenceBuf.trim(), backendUrl);
                   sentenceBuf = '';
                 }
               }
@@ -471,7 +469,7 @@ export default function AuraChat({ onBack }) {
         }
       }
 
-      if (sentenceBuf.trim()) enqueueSpeak(sentenceBuf.trim(), backendUrl, 'general', 'aura');
+      if (sentenceBuf.trim()) enqueueSpeak(sentenceBuf.trim(), backendUrl);
       conversationRef.current.push({ role: 'assistant', content: fullText });
       addStep('Response complete.');
     } catch (err) {

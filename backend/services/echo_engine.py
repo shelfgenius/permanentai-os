@@ -310,8 +310,8 @@ def extract_memory_updates(
 # Model configs for NVIDIA NIM
 MODELS = {
     "qwen-122b": {
-        "model_id": "qwen/qwen3.5-72b-a10b-instruct",
-        "label": "Qwen 3.5 122B",
+        "model_id": "qwen/qwen2.5-coder-32b-instruct",
+        "label": "Qwen 2.5 Coder 32B (Powerful)",
         "max_tokens": 8192,
         "tier": "powerful",
     },
@@ -320,6 +320,12 @@ MODELS = {
         "label": "Qwen 2.5 Coder 32B",
         "max_tokens": 4096,
         "tier": "fast",
+    },
+    "nemotron": {
+        "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "label": "Nemotron 30B Reasoning",
+        "max_tokens": 8192,
+        "tier": "powerful",
     },
     "qwen-7b": {
         "model_id": "qwen/qwen2.5-7b-instruct",

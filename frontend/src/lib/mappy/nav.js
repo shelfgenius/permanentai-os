@@ -13,6 +13,12 @@
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const OSRM_URL      = 'https://router.project-osrm.org';
 
+// Use backend geocode proxy to avoid CORS issues with Nominatim
+function getBackendUrl() {
+  try { return window.__STORE_BACKEND_URL || localStorage.getItem('backendUrl') || 'https://permanentai-backend.onrender.com'; }
+  catch { return 'https://permanentai-backend.onrender.com'; }
+}
+
 /* ── Geocoding ─────────────────────────────────────────────────── */
 
 /**
@@ -120,13 +126,13 @@ export async function searchPlaces(query, { limit = 8, near } = {}) {
 }
 
 function buildUrl(params) {
+  const backend = getBackendUrl();
   const usp = new URLSearchParams({
-    format: 'jsonv2',
-    addressdetails: '1',
     ...params,
     limit: String(params.limit ?? 8),
   });
-  return `${NOMINATIM_URL}/search?${usp.toString()}`;
+  // Use backend proxy to bypass CORS
+  return `${backend}/geocode/search?${usp.toString()}`;
 }
 
 async function fetchJson(url) {
@@ -141,9 +147,9 @@ async function fetchJson(url) {
 
 export async function reverseGeocode({ lat, lng }) {
   try {
+    const backend = getBackendUrl();
     const r = await fetch(
-      `${NOMINATIM_URL}/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
-      { headers: { 'Accept-Language': 'ro,en;q=0.8' } },
+      `${backend}/geocode/reverse?lat=${lat}&lon=${lng}`,
     );
     if (!r.ok) return null;
     const d = await r.json();

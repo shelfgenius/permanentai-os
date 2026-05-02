@@ -111,13 +111,25 @@ def _html_to_pdf(html: str, output_path: str) -> None:
         pdf = FPDF()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=25)
+        pdf.set_left_margin(15)
+        pdf.set_right_margin(15)
         pdf.set_font("Helvetica", size=11)
+        usable_w = pdf.w - pdf.l_margin - pdf.r_margin
         for line in text.split('\n'):
             stripped = line.strip()
             if not stripped:
                 pdf.ln(4)
                 continue
-            pdf.multi_cell(0, 6, stripped)
+            # Break overly-long words that would exceed cell width
+            try:
+                pdf.multi_cell(usable_w, 6, stripped)
+            except Exception:
+                # Fallback: truncate line to safe length
+                safe = stripped[:200] + "..." if len(stripped) > 200 else stripped
+                try:
+                    pdf.multi_cell(usable_w, 6, safe)
+                except Exception:
+                    pdf.cell(usable_w, 6, safe[:100], ln=True)
         pdf.output(output_path)
         return
     except ImportError:

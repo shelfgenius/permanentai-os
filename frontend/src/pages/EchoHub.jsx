@@ -28,6 +28,9 @@ const SKILLS = [
   { id: 'test',      label: 'Write tests',      icon: CheckCircle2 },
   { id: 'debug',     label: 'Debug',            icon: AlertCircle },
   { id: 'doc',       label: 'Add docs',         icon: FileCode },
+  { id: 'plan',      label: 'Architect',        icon: Map },
+  { id: 'security',  label: 'Security audit',   icon: Activity },
+  { id: 'optimize',  label: 'Optimize',         icon: Zap },
 ];
 
 const MCP_SERVERS = [
@@ -279,26 +282,35 @@ function CascadePanel({
       { id: 6, text: 'CHECKING', status: 'pending' },
     ]);
 
-    // Build context — include current file if in Code mode
-    const systemPrompt = mode === 'code'
-      ? `You are Echo, a real-time AI coding agent. The user is editing: ${currentFile}\n\nCurrent file contents:\n\`\`\`\n${currentContent}\n\`\`\`\n\nYou MUST structure your response using these section headers:\n[READING] — What files or code you are examining\n[THINKING] — Your reasoning about what needs to be done\n[PLANNING] — The next actions you intend to take\n[CODING] — The actual code changes (use \`\`\`replace ... \`\`\` for full file replacements)\n[CHECKING] — Verification steps\n\nBe incremental. Show your thought process. Keep each section concise.`
-      : `You are Echo, an AI coding assistant. You MUST structure every response with these section headers in order:\n[READING] — Understand the question and any context.\n[THINKING] — Reason about the answer step by step.\n[PLANNING] — Outline what you will explain or do.\n[CODING] — Provide code or actionable content (skip if not applicable, but include the header).\n[CHECKING] — Verify and summarize.\nBe concise, technical, and always include all five section headers, in order, on their own lines.`;
+    // Detect if a skill is active from the user text (slash command)
+    let activeSkill = null;
+    const skillMatch = userText.match(/^\/(\w+)\s/);
+    if (skillMatch) {
+      const cmd = skillMatch[1].toLowerCase();
+      if (SKILLS.find(s => s.id === cmd)) activeSkill = cmd;
+    }
 
     try {
       const controller = new AbortController();
       abortRef.current = controller;
-      const res = await fetch(`${backendUrl}/nvidia/coding/chat`, {
+      const res = await fetch(`${backendUrl}/echo/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+            ...messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
             { role: 'user', content: userText },
           ],
-          max_tokens: reasoning === 'deep' ? 4096 : 2048,
-          temperature: reasoning === 'creative' ? 0.8 : 0.3,
+          max_tokens: reasoning === 'deep' ? 8192 : 4096,
+          temperature: reasoning === 'creative' ? 0.8 : 0.4,
           stream: true,
+          model: model,
+          reasoning: reasoning,
+          mode: mode,
+          skill: activeSkill,
+          current_file: mode === 'code' ? currentFile : null,
+          current_content: mode === 'code' ? currentContent : null,
+          session_id: `echo-${Date.now()}`,
         }),
         signal: controller.signal,
       });
@@ -530,7 +542,7 @@ function CascadePanel({
                   <button
                     key={skill.id}
                     onClick={() => {
-                      const prompt = `${skill.label} the current file ${currentFile}`;
+                      const prompt = `/${skill.id} ${currentFile || 'the current code'}`;
                       setShowSkills(false);
                       streamResponse(prompt);
                     }}

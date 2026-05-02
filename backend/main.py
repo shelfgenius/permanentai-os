@@ -49,6 +49,7 @@ from routers.sky_router import router as sky_router
 from routers.slide_router import router as slide_router
 from routers.aura_voice_router import router as aura_voice_router
 from routers.elevenlabs_router import router as elevenlabs_router
+from routers.echo_router import router as echo_router
 
 # Optional routers — may fail on cloud if heavy deps (torch, chromadb) are missing
 _optional_routers = {}
@@ -132,6 +133,7 @@ app.include_router(sky_router)
 app.include_router(slide_router)
 app.include_router(aura_voice_router)
 app.include_router(elevenlabs_router)
+app.include_router(echo_router)
 
 # Optional routers (loaded only if deps available)
 for name, r in _optional_routers.items():

@@ -169,13 +169,34 @@ async function _processNext() {
       } catch (_) { /* direct ElevenLabs failed */ }
     }
 
-    // ── 2. NVIDIA cloud Magpie TTS (fallback) ──
+    // ── 2. Backend ElevenLabs proxy (handles Romanian voices + local proxy) ──
     if (!streamed) {
       try {
+        const lang = _detectLang(text);
+        const res = await fetch(`${base}/elevenlabs/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, language: lang }),
+          signal: AbortSignal.timeout(25000),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 100) {
+            _enqueueAudioChunk(await blob.arrayBuffer());
+            streamed = true;
+          }
+        }
+      } catch (_) { /* backend ElevenLabs proxy failed */ }
+    }
+
+    // ── 3. NVIDIA cloud Magpie TTS (fallback) ──
+    if (!streamed) {
+      try {
+        const lang = _detectLang(text);
         const res = await fetch(`${base}/nvidia/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice: 'multilingual_female', language: 'en' }),
+          body: JSON.stringify({ text, voice: 'multilingual_female', language: lang }),
           signal: AbortSignal.timeout(12000),
         });
         if (res.ok) {
@@ -188,7 +209,7 @@ async function _processNext() {
       } catch (_) { /* cloud TTS unavailable */ }
     }
 
-    // ── 3. Streaming TTS (Kokoro/legacy) ──
+    // ── 4. Streaming TTS (Kokoro/legacy) ──
     if (!streamed) {
       try {
         const res = await fetch(`${base}/tts/stream-chunks`, {
@@ -219,13 +240,14 @@ async function _processNext() {
       } catch (_) { /* streaming failed */ }
     }
 
-    // ── 4. XTTS / legacy TTS ──
+    // ── 5. XTTS / legacy TTS ──
     if (!streamed) {
       try {
+        const lang = _detectLang(text);
         let resp = await fetch(`${base}/xtts/speak`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, agent: 'aura', language: 'en' }),
+          body: JSON.stringify({ text, agent: 'aura', language: lang }),
         });
         if (!resp.ok) throw new Error('xtts fail');
         const blob = await resp.blob();
@@ -245,7 +267,7 @@ async function _processNext() {
       }
     }
 
-    // ── 5. Browser speechSynthesis (last resort) ──
+    // ── 6. Browser speechSynthesis (last resort) ──
     if (!streamed) {
       _browserSpeakFallback(text);
     }
@@ -268,10 +290,18 @@ function _browserSpeakFallback(text) {
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
+    const lang = _detectLang(text);
     const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => /en.*us/i.test(v.lang) && /natural|neural|premium/i.test(v.name))
-      || voices.find(v => /en.*us/i.test(v.lang))
-      || voices.find(v => /en/i.test(v.lang));
+    let preferred;
+    if (lang === 'ro') {
+      preferred = voices.find(v => /ro/i.test(v.lang))
+        || voices.find(v => /ro/i.test(v.name));
+      utterance.lang = 'ro-RO';
+    } else {
+      preferred = voices.find(v => /en.*us/i.test(v.lang) && /natural|neural|premium/i.test(v.name))
+        || voices.find(v => /en.*us/i.test(v.lang))
+        || voices.find(v => /en/i.test(v.lang));
+    }
     if (preferred) utterance.voice = preferred;
     _browserSpeaking = true;
     utterance.onend = () => { _browserSpeaking = false; };

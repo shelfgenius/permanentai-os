@@ -82,7 +82,7 @@ async function _processNext() {
   try {
     let streamed = false;
 
-    // ── Primary: ElevenLabs TTS (sentence-aware, language-auto) ──
+    // ── 1. ElevenLabs TTS (primary — sentence-aware, language-auto) ──
     if (!streamed) {
       try {
         const res = await fetch(`${base}/elevenlabs/tts`, {
@@ -98,10 +98,86 @@ async function _processNext() {
             streamed = true;
           }
         }
-      } catch (_) { /* ElevenLabs unavailable, try fallback */ }
+      } catch (_) { /* ElevenLabs unavailable */ }
     }
 
-    // ── Fallback: Browser speechSynthesis ────────────────────
+    // ── 2. NVIDIA cloud Magpie TTS (fallback) ──
+    if (!streamed) {
+      try {
+        const res = await fetch(`${base}/nvidia/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice: 'multilingual_female', language: 'en' }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 100) {
+            _enqueueAudioChunk(await blob.arrayBuffer());
+            streamed = true;
+          }
+        }
+      } catch (_) { /* cloud TTS unavailable */ }
+    }
+
+    // ── 3. Streaming TTS (Kokoro/legacy) ──
+    if (!streamed) {
+      try {
+        const res = await fetch(`${base}/tts/stream-chunks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, domain: 'general', first_buffer_words: 4 }),
+        });
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          let buffer = new Uint8Array(0);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const tmp = new Uint8Array(buffer.length + value.length);
+            tmp.set(buffer);
+            tmp.set(value, buffer.length);
+            buffer = tmp;
+            while (buffer.length >= 4) {
+              const len = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+              if (buffer.length < 4 + len) break;
+              const chunk = buffer.slice(4, 4 + len).buffer;
+              buffer = buffer.slice(4 + len);
+              _enqueueAudioChunk(chunk);
+              streamed = true;
+            }
+          }
+        }
+      } catch (_) { /* streaming failed */ }
+    }
+
+    // ── 4. XTTS / legacy TTS ──
+    if (!streamed) {
+      try {
+        let resp = await fetch(`${base}/xtts/speak`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, agent: 'aura', language: 'en' }),
+        });
+        if (!resp.ok) throw new Error('xtts fail');
+        const blob = await resp.blob();
+        if (blob.size > 0) { _enqueueAudioChunk(await blob.arrayBuffer()); streamed = true; }
+      } catch {
+        try {
+          const resp = await fetch(`${base}/tts/speak`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, domain: 'general' }),
+          });
+          if (resp?.ok) {
+            const blob = await resp.blob();
+            if (blob.size > 0) { _enqueueAudioChunk(await blob.arrayBuffer()); streamed = true; }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // ── 5. Browser speechSynthesis (last resort) ──
     if (!streamed) {
       _browserSpeakFallback(text);
     }

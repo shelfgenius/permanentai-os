@@ -1,6 +1,6 @@
 import { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame, Canvas } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+// drei Environment removed — too heavy for this canvas
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { vertexShader, fragmentShader } from './shaders';
@@ -8,7 +8,7 @@ import { vertexShader, fragmentShader } from './shaders';
 const SPHERE_R = 2;
 const IS_MOBILE = typeof window !== 'undefined' && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
 const IS_IOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
-const GEO_DETAIL = IS_MOBILE ? 24 : 64;
+const GEO_DETAIL = IS_MOBILE ? 16 : 32;
 
 function OrbMesh({ audioData, orbState }) {
   const meshRef = useRef(null);
@@ -139,20 +139,19 @@ export default function AuraOrbCanvas({ audioData, orbState }) {
     <Canvas
       camera={{ position: [0, 0, camZ], fov: 45, near: 0.1, far: 100 }}
       style={{ position: 'absolute', inset: 0, zIndex: 1 }}
-      dpr={IS_MOBILE ? [1, 1.5] : [1, 2]}
-      gl={{ antialias: !IS_MOBILE, alpha: true, powerPreference: IS_MOBILE ? 'low-power' : 'high-performance' }}
+      dpr={[1, 1]}
+      gl={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
+      performance={{ min: 0.3 }}
       onCreated={onCreated}
     >
-      <ambientLight intensity={0.4} color="#FFFFFF" />
+      <ambientLight intensity={0.5} color="#FFFFFF" />
       <directionalLight position={[5, 5, 5]} intensity={1.5} color="#FFF5EB" />
       {!IS_MOBILE && <directionalLight position={[-3, 2, -3]} intensity={0.6} color="#E8F0FF" />}
-      {!IS_MOBILE && <directionalLight position={[0, -5, 2]} intensity={0.4} color="#B87333" />}
       <pointLight position={[2, 3, 2]} intensity={0.8} color="#CD7F32" distance={20} />
       <OrbMesh audioData={audioData} orbState={orbState} />
-      {!IS_MOBILE && <Environment preset="studio" />}
       {!IS_MOBILE && (
-        <EffectComposer>
-          <Bloom intensity={0.4} luminanceThreshold={0.8} luminanceSmoothing={0.5} radius={0.5} />
+        <EffectComposer multisampling={0}>
+          <Bloom intensity={0.3} luminanceThreshold={0.8} luminanceSmoothing={0.5} radius={0.4} mipmapBlur />
         </EffectComposer>
       )}
     </Canvas>

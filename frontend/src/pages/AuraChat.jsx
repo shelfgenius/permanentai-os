@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, Component } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Mic, MicOff, Search, Presentation, Sparkles, Send, X, User, Bot, Loader2, CircleDot, AudioLines, Loader, MessageSquare, Music, Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import useStore from '../store/useStore';
@@ -6,6 +6,23 @@ import { useMusicPlayer, fmtTime } from '../lib/musicPlayer';
 import { enqueueSpeak, clearTtsQueue, isTtsSpeaking } from '../lib/ttsQueue';
 import { parseAuraCommand, executeAuraCommand } from '../lib/auraRouter';
 import AuraOrbCanvas from '../components/aura/AuraOrb';
+
+// Error boundary to catch WebGL/Three.js crashes gracefully
+class CanvasErrorBoundary extends Component {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err) { console.warn('[AURA] 3D canvas crashed:', err.message); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 140, height: 140, borderRadius: '50%', background: 'radial-gradient(circle, rgba(184,115,51,0.12), transparent)', animation: 'edgeBreathe 4s ease-in-out infinite' }} />
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const AI_MODELS = [
   { value: 'nemotron', label: 'Nemotron Omni' },
@@ -32,88 +49,13 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
   const autoStopFiredRef = useRef(false);
   const onAutoTranscriptRef = useRef(onAutoTranscript);
   onAutoTranscriptRef.current = onAutoTranscript;
-
-  // Audio level analyzer for orb
-  const startAnalyzer = useCallback((stream) => {
-    try {
-      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-        audioCtxRef.current = new AudioContext();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyserRef.current = analyser;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const tick = () => {
-        const arr = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(arr);
-        const level = arr.reduce((a, b) => a + b, 0) / arr.length / 255;
-        setAudioLevel(level);
-        setAudioData(arr);
-
-        // ── Silence detection for auto-send ──
-        if (level > silenceThreshold) {
-          // User is speaking
-          hasSpeechRef.current = true;
-          silenceStartRef.current = null;
-          setSilenceRatio(0);
-        } else if (hasSpeechRef.current) {
-          // User has spoken before and is now silent
-          if (!silenceStartRef.current) {
-            silenceStartRef.current = performance.now();
-          }
-          const elapsed = performance.now() - silenceStartRef.current;
-          setSilenceRatio(Math.min(elapsed / silenceTimeout, 1));
-          if (elapsed >= silenceTimeout && !autoStopFiredRef.current) {
-            autoStopFiredRef.current = true;
-            console.log('[AURA] Silence detected — auto-stopping recording');
-            // Auto-stop: stop recorder, transcribe, call callback
-            _autoStop();
-            return; // stop the tick loop — cleanup will handle it
-          }
-        }
-
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      tick();
-    } catch (e) { console.warn('[AURA] Analyzer setup error:', e); }
-  }, []);
-
-  const stopAnalyzer = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    setAudioLevel(0);
-    setAudioData(new Uint8Array(128));
-    setSilenceRatio(0);
-    silenceStartRef.current = null;
-    hasSpeechRef.current = false;
-    autoStopFiredRef.current = false;
-  }, []);
-
-  // Auto-stop triggered by silence detection
-  const _autoStop = useCallback(async () => {
-    stopAnalyzer();
-    setIsRecording(false);
-    const rec = mediaRecorderRef.current;
-    if (!rec || rec.state === 'inactive') return;
-    rec.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
-      chunksRef.current = [];
-      console.log('[AURA] Auto-stop blob size:', blob.size);
-      if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); return; }
-      const text = await transcribeAudio(blob);
-      if (text && text.trim() && onAutoTranscriptRef.current) {
-        onAutoTranscriptRef.current(text.trim());
-      }
-    };
-    rec.stop();
-  }, [stopAnalyzer, transcribeAudio]);
+  const autoStopRef = useRef(null); // ref so startAnalyzer can call latest _autoStop
 
   // Fetch ElevenLabs config once for direct browser STT
   const elConfigRef = useRef(null);
   const elConfigFetchedRef = useRef(false);
 
-  // Send audio blob to ASR
+  // Send audio blob to ASR — defined FIRST so _autoStop can reference it
   const transcribeAudio = useCallback(async (blob) => {
     if (!backendUrl) { console.warn('[AURA] No backendUrl'); return ''; }
     console.log('[AURA] Sending audio to ASR, size:', blob.size, 'type:', blob.type);
@@ -163,6 +105,80 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
     console.warn('[AURA] All STT failed — no transcript');
     return '';
   }, [backendUrl]);
+
+  const stopAnalyzer = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    setAudioLevel(0);
+    setAudioData(new Uint8Array(128));
+    setSilenceRatio(0);
+    silenceStartRef.current = null;
+    hasSpeechRef.current = false;
+    autoStopFiredRef.current = false;
+  }, []);
+
+  // Auto-stop triggered by silence detection — defined AFTER transcribeAudio
+  const _autoStop = useCallback(async () => {
+    stopAnalyzer();
+    setIsRecording(false);
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === 'inactive') return;
+    rec.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+      chunksRef.current = [];
+      console.log('[AURA] Auto-stop blob size:', blob.size);
+      if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); return; }
+      const text = await transcribeAudio(blob);
+      if (text && text.trim() && onAutoTranscriptRef.current) {
+        onAutoTranscriptRef.current(text.trim());
+      }
+    };
+    rec.stop();
+  }, [stopAnalyzer, transcribeAudio]);
+  autoStopRef.current = _autoStop; // keep ref updated for startAnalyzer
+
+  // Audio level analyzer for orb — uses autoStopRef to avoid stale closure
+  const startAnalyzer = useCallback((stream) => {
+    try {
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new AudioContext();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const tick = () => {
+        const arr = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(arr);
+        const level = arr.reduce((a, b) => a + b, 0) / arr.length / 255;
+        setAudioLevel(level);
+        setAudioData(arr);
+
+        // ── Silence detection for auto-send ──
+        if (level > silenceThreshold) {
+          hasSpeechRef.current = true;
+          silenceStartRef.current = null;
+          setSilenceRatio(0);
+        } else if (hasSpeechRef.current) {
+          if (!silenceStartRef.current) {
+            silenceStartRef.current = performance.now();
+          }
+          const elapsed = performance.now() - silenceStartRef.current;
+          setSilenceRatio(Math.min(elapsed / silenceTimeout, 1));
+          if (elapsed >= silenceTimeout && !autoStopFiredRef.current) {
+            autoStopFiredRef.current = true;
+            console.log('[AURA] Silence detected — auto-stopping recording');
+            autoStopRef.current?.();
+            return; // stop the tick loop
+          }
+        }
+
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) { console.warn('[AURA] Analyzer setup error:', e); }
+  }, []);
 
   const toggleRecording = useCallback(async () => {
     console.log('[AURA] toggleRecording, isRecording:', isRecording);
@@ -796,7 +812,9 @@ export default function AuraChat({ onBack }) {
 
       {/* 3D Orb Canvas */}
       <div className="fixed inset-0 z-[1]">
-        <AuraOrbCanvas audioData={voice.audioData} orbState={orbState} />
+        <CanvasErrorBoundary>
+          <AuraOrbCanvas audioData={voice.audioData} orbState={orbState} />
+        </CanvasErrorBoundary>
       </div>
 
       {/* Back button */}

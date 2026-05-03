@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import DNAStrand from './DNAStrand.jsx';
 
+const IS_MOBILE = typeof window !== 'undefined' && (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+
 /**
  * DNAScene — fixed full-viewport Three.js canvas with moody lighting
  * and a procedural DNA double-helix.
@@ -59,16 +61,16 @@ export default function DNAScene({
       }}
     >
       <Canvas
-        dpr={[1, 1.25]}
+        dpr={[1, 1]}
         camera={{ position: [0, 0, zoomStart], fov: 42 }}
         gl={{
-          antialias: true, alpha: false, powerPreference: 'high-performance',
+          antialias: false, alpha: false, powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1,
           failIfMajorPerformanceCaveat: false,
           preserveDrawingBuffer: false,
         }}
-        performance={{ min: 0.5 }}
-        resize={{ debounce: 100, scroll: false }}
+        performance={{ min: 0.3 }}
+        resize={{ debounce: 200, scroll: false }}
       >
         <color attach="background" args={['#020408']} />
         {/* Deep space fog — fades strand ends into darkness */}
@@ -100,15 +102,18 @@ export default function DNAScene({
           onAnchorsUpdate={onAnchorsUpdate}
         />
 
-        {/* Subtle bloom — just enough to lift emissive highlights, not overpower */}
-        <EffectComposer>
-          <Bloom
-            luminanceThreshold={0.35}
-            luminanceSmoothing={0.85}
-            intensity={0.55}
-            radius={0.7}
-          />
-        </EffectComposer>
+        {/* Subtle bloom — disabled on mobile for performance */}
+        {!IS_MOBILE && (
+          <EffectComposer multisampling={0}>
+            <Bloom
+              luminanceThreshold={0.5}
+              luminanceSmoothing={0.9}
+              intensity={0.35}
+              radius={0.4}
+              mipmapBlur
+            />
+          </EffectComposer>
+        )}
       </Canvas>
     </div>
   );
@@ -131,8 +136,8 @@ function AnchorProjector({ groupRef, anchors, onAnchorsUpdate }) {
 
   useFrame(() => {
     if (!onAnchorsUpdate || !groupRef.current || anchors.length === 0) return;
-    // throttle to every 2nd frame
-    step.current = (step.current + 1) % 2;
+    // throttle to every 3rd frame for performance
+    step.current = (step.current + 1) % 3;
     if (step.current !== 0) return;
 
     const out = [];

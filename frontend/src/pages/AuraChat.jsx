@@ -422,6 +422,8 @@ export default function AuraChat({ onBack }) {
     silenceThreshold: 0.04,
     onAutoTranscript: (text) => {
       console.log('[AURA] Auto-transcript from silence detection:', text.slice(0, 60));
+      // User spoke — cancel inactivity timer
+      if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
       if (handleSendRef.current) handleSendRef.current(text);
     },
   });
@@ -429,8 +431,9 @@ export default function AuraChat({ onBack }) {
   const abortRef = useRef(null);
   const conversationRef = useRef([]);
 
-  const [orbState, setOrbState] = useState('listening');
-  const autoListenRef = useRef(true);
+  const [orbState, setOrbState] = useState('standby');
+  const inactivityTimerRef = useRef(null); // 20s timeout → standby if no speech
+  const wakeRecRef = useRef(null); // SpeechRecognition for wake word
   const [selectedModel, setSelectedModel] = useState('nemotron');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
@@ -457,16 +460,102 @@ export default function AuraChat({ onBack }) {
     setReasoningSteps(prev => [...prev, { id: stepId.current, ts, text }]);
   }, []);
 
-  // ── Voice helpers (defined first to avoid circular deps) ────────
+  // ── Voice helpers ────────────────────────────────────────────────
   const startListeningRef = useRef(null);
+
+  // Stop wake-word detection when entering active listen mode
+  const stopWakeWord = useCallback(() => {
+    if (wakeRecRef.current) {
+      try { wakeRecRef.current.abort(); } catch {}
+      wakeRecRef.current = null;
+    }
+  }, []);
+
+  // Go to standby and start wake-word detection
+  const goToStandby = useCallback(() => {
+    if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
+    setOrbState('standby');
+    // Start wake-word detection after a short delay
+    setTimeout(() => {
+      if (startWakeWordRef.current) startWakeWordRef.current();
+    }, 500);
+  }, []);
+
   const startListening = useCallback(async () => {
     if (voice.isRecording) return;
+    stopWakeWord();
     try {
       await voice.toggleRecording();
       setOrbState('listening');
-    } catch { setOrbState('standby'); }
-  }, [voice]);
+      // 20s inactivity timer: if no speech detected, go to standby
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = setTimeout(() => {
+        console.log('[AURA] 20s inactivity — going to standby');
+        // Only timeout if still in listening state (not already processing)
+        if (voice.isRecording) {
+          voice.toggleRecording(); // stop mic silently (discard)
+        }
+        goToStandby();
+      }, 20000);
+    } catch { goToStandby(); }
+  }, [voice, stopWakeWord, goToStandby]);
   startListeningRef.current = startListening;
+
+  // ── Wake-word detection: "Aura" via Web Speech API ─────────────
+  const startWakeWordRef = useRef(null);
+  const startWakeWordDetection = useCallback(() => {
+    // Don't start if already listening, processing, or TTS playing
+    if (voice.isRecording || isProcessing || isTtsSpeaking()) return;
+    stopWakeWord();
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      console.warn('[AURA] SpeechRecognition not supported — no wake word');
+      return;
+    }
+
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    wakeRecRef.current = rec;
+
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript.toLowerCase();
+        if (transcript.includes('aura') || transcript.includes('ora') || transcript.includes('laura')) {
+          console.log('[AURA] Wake word detected:', transcript);
+          rec.abort();
+          wakeRecRef.current = null;
+          // Activate listening
+          if (startListeningRef.current) startListeningRef.current();
+          return;
+        }
+      }
+    };
+
+    rec.onerror = (e) => {
+      if (e.error !== 'aborted' && e.error !== 'no-speech') {
+        console.warn('[AURA] Wake word error:', e.error);
+      }
+      // Restart on transient errors
+      wakeRecRef.current = null;
+      if (e.error === 'no-speech' || e.error === 'network') {
+        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 1000);
+      }
+    };
+
+    rec.onend = () => {
+      // Auto-restart if still in standby and wasn't intentionally stopped
+      if (wakeRecRef.current === rec) {
+        wakeRecRef.current = null;
+        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 300);
+      }
+    };
+
+    try { rec.start(); } catch { wakeRecRef.current = null; }
+  }, [voice.isRecording, isProcessing, stopWakeWord]);
+  startWakeWordRef.current = startWakeWordDetection;
 
   // ── Nemotron streaming chat (Brain) ──────────────────────────────
   const handleSendMessage = useCallback(async (message, { autoRestart = false } = {}) => {
@@ -592,18 +681,20 @@ export default function AuraChat({ onBack }) {
         setChatMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: '*Error: Could not reach the backend.*' } : m));
       }
     } finally {
-      setOrbState('standby');
       setShowThinking(false);
       setIsProcessing(false);
       abortRef.current = null;
-      // Auto-restart listening after AI finishes speaking
-      if (autoListenRef.current) {
-        setTimeout(() => {
-          if (startListeningRef.current) startListeningRef.current();
-        }, 800);
-      }
+      // Wait for TTS to finish, then go to standby with wake-word
+      const waitForTts = () => {
+        if (isTtsSpeaking()) {
+          setTimeout(waitForTts, 500);
+        } else {
+          goToStandby();
+        }
+      };
+      setTimeout(waitForTts, 600);
     }
-  }, [isProcessing, backendUrl, addStep]);
+  }, [isProcessing, backendUrl, addStep, goToStandby]);
 
   handleSendRef.current = handleSendMessage;
   const handleSend = () => { if (inputValue.trim()) { handleSendMessage(inputValue.trim()); setInputValue(''); } };
@@ -612,6 +703,8 @@ export default function AuraChat({ onBack }) {
   // ── Voice toggle → Parakeet ASR → Nemotron ──────────────────────
   const stopAndProcess = useCallback(async () => {
     if (!voice.isRecording) return;
+    // Cancel inactivity timer — user is actively interacting
+    if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
     setOrbState('thinking');
     console.log('[AURA] stopAndProcess: stopping recording...');
     try {
@@ -621,13 +714,13 @@ export default function AuraChat({ onBack }) {
         handleSendMessage(transcript.trim());
       } else {
         console.log('[AURA] Empty transcript — returning to standby');
-        setOrbState('standby');
+        goToStandby();
       }
     } catch {
-      setOrbState('standby');
+      goToStandby();
       setIsProcessing(false);
     }
-  }, [voice, handleSendMessage, startListening]);
+  }, [voice, handleSendMessage, goToStandby]);
 
   const handleToggleVoice = useCallback(async () => {
     console.log('[AURA] handleToggleVoice, isRecording:', voice.isRecording);
@@ -638,14 +731,18 @@ export default function AuraChat({ onBack }) {
     }
   }, [voice.isRecording, stopAndProcess, startListening]);
 
-  // ── Auto-listen on mount ──────────────────────────────────────────
+  // ── On mount: start listening with 20s timeout (Alexa-style) ────
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (autoListenRef.current && !voice.isRecording && !isProcessing) {
+      if (!voice.isRecording && !isProcessing) {
         startListening();
       }
-    }, 1200);
-    return () => clearTimeout(timer);
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      stopWakeWord();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

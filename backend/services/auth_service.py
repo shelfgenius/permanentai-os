@@ -4,8 +4,9 @@ Auth Service — JWT + bcrypt password hashing, SQLite-backed user store.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -15,7 +16,9 @@ import bcrypt as _bcrypt
 
 logger = logging.getLogger("auth_service")
 
-SECRET_KEY   = "personal-ai-os-secret-change-in-production-2025"
+SECRET_KEY   = os.environ.get("JWT_SECRET_KEY", "personal-ai-os-secret-change-in-production-2025")
+if SECRET_KEY == "personal-ai-os-secret-change-in-production-2025":
+    logger.warning("JWT_SECRET_KEY not set — using insecure default! Set JWT_SECRET_KEY env var in production.")
 ALGORITHM    = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
@@ -83,7 +86,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -96,7 +99,7 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 def register_user(username: str, display_name: str, password: str,
-                  preferred_domain: str = "constructii",
+                  preferred_domain: str = "general",
                   theme_color: str = "#ff8c00") -> dict:
     with _conn() as c:
         existing = c.execute("SELECT id FROM auth_users WHERE username=?", (username,)).fetchone()
@@ -108,7 +111,7 @@ def register_user(username: str, display_name: str, password: str,
                preferred_domain, theme_color, created_at)
                VALUES (?,?,?,?,?,?)""",
             (username, display_name, pw_hash, preferred_domain,
-             theme_color, datetime.utcnow().isoformat()),
+             theme_color, datetime.now(timezone.utc).isoformat()),
         )
         c.commit()
         row = c.execute("SELECT * FROM auth_users WHERE username=?", (username,)).fetchone()
@@ -183,7 +186,7 @@ def upsert_oauth_user(
                 "general", "#0071e3",
                 provider, email,
                 tc_accepted_version, tc_accepted_at,
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
             ),
         )
         c.commit()

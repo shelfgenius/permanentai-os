@@ -15,7 +15,7 @@ router = APIRouter(prefix="/ai", tags=["orchestrator"])
 
 class QueryRequest(BaseModel):
     message: str
-    domain: str = "constructii"
+    domain: str = "general"
     session_id: str = "default"
     history: Optional[list] = None
 

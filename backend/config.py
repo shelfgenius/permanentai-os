@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     # Storage (MinIO / S3)
     storage_backend: str = "minio"        # minio | s3
     minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
     minio_bucket: str = "techquery-assets"
     minio_secure: bool = False
 

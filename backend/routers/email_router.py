@@ -9,9 +9,11 @@ Uses SMTP (Gmail App Password) configured in backend/.env
 from __future__ import annotations
 
 import base64
+import ipaddress
 import logging
 import os
 import smtplib
+import socket
 import tempfile
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -42,19 +44,42 @@ def _resolve_local_path(url: str) -> Path | None:
     # /blender/file/<name>
     if path.startswith("/blender/file/"):
         name = path.split("/blender/file/")[-1]
-        if ".." not in name and "/" not in name and "\\" not in name:
-            return BASE_DIR / "data" / "sculpts" / name
+        sculpts_dir = (BASE_DIR / "data" / "sculpts").resolve()
+        candidate = (sculpts_dir / name).resolve()
+        if candidate.is_relative_to(sculpts_dir):
+            return candidate
 
     # /nvidia/image/<name>  or /nvidia/file/<name>
     if path.startswith("/nvidia/"):
         parts = path.split("/")
         name = parts[-1] if len(parts) > 2 else None
-        if name and ".." not in name:
-            candidate = BASE_DIR / "data" / "images" / name
-            if candidate.exists():
+        if name:
+            images_dir = (BASE_DIR / "data" / "images").resolve()
+            candidate = (images_dir / name).resolve()
+            if candidate.is_relative_to(images_dir) and candidate.exists():
                 return candidate
 
     return None
+
+
+def _is_safe_url(url: str) -> bool:
+    """Block SSRF: reject private/internal/link-local IP targets."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+        for _, _, _, _, addr in resolved:
+            ip = ipaddress.ip_address(addr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+    except (socket.gaierror, ValueError):
+        return False
+    return True
 
 # Auto-detect SMTP server from email domain
 def _smtp_config(email: str) -> tuple[str, int]:
@@ -98,6 +123,8 @@ async def send_file(req: SendFileRequest):
         if local_path and local_path.exists():
             file_bytes = local_path.read_bytes()
         else:
+            if not _is_safe_url(req.file_url):
+                raise HTTPException(400, "URL blocked: only public HTTP(S) URLs are allowed")
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     r = await client.get(req.file_url)

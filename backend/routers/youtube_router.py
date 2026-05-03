@@ -326,7 +326,7 @@ async def youtube_search(req: SearchRequest):
             "fields": "items(id/videoId,snippet/title,snippet/channelTitle,snippet/thumbnails/high/url,snippet/thumbnails/medium/url)",
         })
         if data and "items" in data:
-            results = [_api_item_to_result(item).dict() for item in data["items"]]
+            results = [_api_item_to_result(item).model_dump() for item in data["items"]]
             # Batch fetch durations + tags
             video_ids = [r["video_id"] for r in results if r["video_id"]]
             if video_ids:
@@ -381,7 +381,7 @@ async def youtube_search(req: SearchRequest):
         try:
             r = _ytdlp_to_result(json.loads(line))
             if r:
-                results.append(r.dict())
+                results.append(r.model_dump())
         except Exception:
             continue
 
@@ -770,7 +770,7 @@ async def youtube_related(req: RelatedRequest):
                     r = _api_item_to_result(item)
                     if r.video_id and r.video_id not in seen_ids:
                         seen_ids.add(r.video_id)
-                        results.append(r.dict())
+                        results.append(r.model_dump())
 
     # 2) Inject user favorites every ~4 tracks (the "Supermix" feel)
     if req.user_id:
@@ -831,7 +831,7 @@ async def youtube_related(req: RelatedRequest):
                         r = _ytdlp_to_result(json.loads(line))
                         if r and r.video_id not in seen_ids:
                             seen_ids.add(r.video_id)
-                            results.append(r.dict())
+                            results.append(r.model_dump())
                     except Exception:
                         continue
             except Exception:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -52,7 +52,7 @@ async def get_due_reviews(user_id: int = 1):
 @router.post("/concepts")
 async def add_concept(body: ConceptIn):
     db = get_sqlite_service()
-    tomorrow = (datetime.utcnow() + timedelta(days=1)).date().isoformat()
+    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     conn = db._conn()
     with conn:
         conn.execute(
@@ -60,7 +60,7 @@ async def add_concept(body: ConceptIn):
                (user_id, concept, domain, subject, first_studied, next_review, interval_days, repetition_count)
                VALUES (?,?,?,?,?,?,1,0)""",
             (body.user_id, body.concept, body.domain, body.subject,
-             datetime.utcnow().date().isoformat(), tomorrow),
+             datetime.now(timezone.utc).date().isoformat(), tomorrow),
         )
         conn.commit()
     return {"status": "added", "concept": body.concept, "next_review": tomorrow}
@@ -88,7 +88,7 @@ async def mark_review_done(body: ReviewDoneIn):
         else:
             next_interval = 1
 
-        next_review = (datetime.utcnow() + timedelta(days=next_interval)).date().isoformat()
+        next_review = (datetime.now(timezone.utc) + timedelta(days=next_interval)).date().isoformat()
 
         conn.execute(
             """UPDATE spaced_repetition

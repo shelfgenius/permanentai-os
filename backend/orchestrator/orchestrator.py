@@ -200,7 +200,7 @@ class PersonalAIOrchestrator:
 
     # ── Main query — cascade through providers ────────────────────────
     async def query(
-        self, message: str, domain: str = "constructii",
+        self, message: str, domain: str = "general",
         session_id: str = "default", history: Optional[list] = None,
     ) -> AsyncIterator[dict]:
         try:

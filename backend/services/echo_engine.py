@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("echo_engine")
 
 # ── Paths ─────────────────────────────────────────────────────────
-_DATA_DIR = Path(os.getenv("ECHO_DATA_DIR", "/tmp/echo-data"))
+_DATA_DIR = Path(os.getenv("ECHO_DATA_DIR", str(Path(__file__).resolve().parent.parent / "data" / "echo-data")))
 _MEMORY_DIR = _DATA_DIR / "memory"
 _SESSIONS_DIR = _DATA_DIR / "sessions"
 

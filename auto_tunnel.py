@@ -14,7 +14,7 @@ Configuration (via .env or real environment variables):
     SUPABASE_SERVICE_ROLE_KEY    service-role JWT (KEEP SECRET, local only)
 
     CF_TUNNEL_WORKER_URL         https://pai-tunnel-registry.maherboss23.workers.dev
-    CF_TUNNEL_TOKEN              pai-tunnel-2024
+    CF_TUNNEL_TOKEN              (generate a random token)
 
     TUNNEL_EMAIL_TO              user@example.com  (if set, sends email via SMTP)
     SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
@@ -53,7 +53,7 @@ _load_dotenv()
 SUPABASE_URL           = os.getenv("SUPABASE_URL",           "https://mpzvaicxzbnfocytwpxk.supabase.co")
 SUPABASE_SERVICE_KEY   = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 CF_WORKER_URL          = os.getenv("CF_TUNNEL_WORKER_URL",   "https://pai-tunnel-registry.maherboss23.workers.dev")
-CF_WORKER_TOKEN        = os.getenv("CF_TUNNEL_TOKEN",        "pai-tunnel-2024")
+CF_WORKER_TOKEN        = os.getenv("CF_TUNNEL_TOKEN",        "")
 EMAIL_TO               = os.getenv("TUNNEL_EMAIL_TO",        "")
 SMTP_HOST              = os.getenv("SMTP_HOST",              "")
 SMTP_PORT              = int(os.getenv("SMTP_PORT", "587"))

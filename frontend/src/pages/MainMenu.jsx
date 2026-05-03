@@ -187,8 +187,8 @@ function AccountSettings({ currentUser, onLogout, onClose, onSelect }) {
   const catToProduct = (catId) => {
     if (!catId) return 'aura';
     if (catId === 'general_ai') return 'aura';
-    if (catId === 'image_gen') return 'aura';
-    if (catId === 'translation') return 'aura';
+    if (catId === 'image_gen') return 'canvas';
+    if (catId === 'translation') return 'lexi';
     return catId;
   };
 

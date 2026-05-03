@@ -317,10 +317,8 @@ def _generate_stub(out_glb: Path, out_png: Path):
 # ── File serving ──────────────────────────────────────────────
 @router.get("/file/{name}")
 async def serve_file(name: str):
-    if ".." in name or "/" in name or "\\" in name:
-        raise HTTPException(400, "bad name")
-    path = SCULPT_DIR / name
-    if not path.exists():
+    path = (SCULPT_DIR / name).resolve()
+    if not path.is_relative_to(SCULPT_DIR.resolve()) or not path.exists():
         raise HTTPException(404, "not found")
     media = "model/gltf-binary" if name.endswith(".glb") else "image/png"
     return FileResponse(path, media_type=media)

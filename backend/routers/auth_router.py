@@ -1,6 +1,7 @@
 """Auth router — register, login, me, profile update, OAuth bridge."""
 from __future__ import annotations
 
+import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -24,7 +25,7 @@ class RegisterRequest(BaseModel):
     username: str
     display_name: str
     password: str
-    preferred_domain: str = "constructii"
+    preferred_domain: str = "general"
     theme_color: str = "#ff8c00"
 
 
@@ -106,7 +107,8 @@ class OAuthRequest(BaseModel):
     tc_accepted_at: Optional[str] = None
 
 
-SUPABASE_URL = "https://mpzvaicxzbnfocytwpxk.supabase.co"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://mpzvaicxzbnfocytwpxk.supabase.co")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "sb_publishable_t6nWUP1Fj45JNR7yLM8wIw_bvHakKk-")
 
 
 @router.post("/oauth")
@@ -126,14 +128,14 @@ async def oauth_exchange(req: OAuthRequest):
             resp = await client.get(
                 f"{SUPABASE_URL}/auth/v1/user",
                 headers={"Authorization": f"Bearer {req.supabase_access_token}",
-                         "apikey": "sb_publishable_t6nWUP1Fj45JNR7yLM8wIw_bvHakKk-"},
+                         "apikey": SUPABASE_ANON_KEY},
             )
     except Exception as exc:
         log.error("Supabase verify request failed: %s", exc)
         raise HTTPException(status_code=502, detail="Cannot reach Supabase to verify token")
 
     if resp.status_code != 200:
-        log.warn("Supabase token rejected: %s", resp.status_code)
+        log.warning("Supabase token rejected: %s", resp.status_code)
         raise HTTPException(status_code=401, detail="Token Supabase invalid sau expirat")
 
     supa_user = resp.json()

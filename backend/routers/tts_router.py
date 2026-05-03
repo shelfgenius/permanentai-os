@@ -23,7 +23,7 @@ router = APIRouter(prefix="/tts", tags=["tts"])
 
 class TTSRequest(BaseModel):
     text: str
-    domain: str = "constructii"
+    domain: str = "general"
 
 
 class TTSStreamRequest(BaseModel):

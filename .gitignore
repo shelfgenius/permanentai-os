@@ -8,6 +8,7 @@ frontend/dist/
 frontend/node_modules/
 
 # Python
+__pycache__/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/.venv/
@@ -15,6 +16,14 @@ backend/venv/
 backend/*.pyc
 backend/**/*.pyc
 *.egg-info/
+
+# Runtime data — never commit
+backend/db/*.db
+backend/data/uploads/
+backend/data/sculpts/
+backend/data/echo-data/
+backend/client_secret.json
+backend/gmail_token.json
 
 # Electron build output
 dist/

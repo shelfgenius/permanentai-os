@@ -195,7 +195,7 @@ async def voice_command(req: VoiceCommandRequest):
         logger.warning("Voice command execution failed (%s:%s): %s", result.hub, result.action, exc)
         execution_result = f"Command matched but execution failed: {str(exc)[:150]}"
 
-    resp = result.dict()
+    resp = result.model_dump()
     if execution_result:
         resp["execution_result"] = execution_result
         resp["spoken_reply"] = execution_result if isinstance(execution_result, str) else result.spoken_reply

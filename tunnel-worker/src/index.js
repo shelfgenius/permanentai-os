@@ -4,10 +4,9 @@
  * POST /set?url=...  → setează URL-ul (necesită token)
  */
 
-const TOKEN = "pai-tunnel-2024";
-
 export default {
   async fetch(request, env) {
+    const TOKEN = env.TUNNEL_TOKEN || "pai-tunnel-2024";
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "*";
 

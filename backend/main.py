@@ -102,15 +102,17 @@ app = FastAPI(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-# CORS — must use allow_origin_regex with allow_credentials=True, because
-# the CORS spec forbids the '*' wildcard when credentials are allowed.
-# The regex below echoes back whatever Origin the browser sent, which
-# covers aura-ai.live, *.pages.dev (all preview deploys), localhost, and
-# the trycloudflare.com tunnel origin when accessed directly.
+# CORS — use explicit allowlist instead of wildcard regex.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_origin_regex=r"https?://.*",
+    allow_origins=[
+        "https://permanentai-os.pages.dev",
+        "https://aura-ai.live",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:5174",
+    ] + settings.cors_origins,
+    allow_origin_regex=r"https://[a-z0-9\-]+\.permanentai-os\.pages\.dev|https://[a-z0-9\-]+\.trycloudflare\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

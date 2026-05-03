@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     username         TEXT    NOT NULL UNIQUE,
     display_name     TEXT,
-    preferred_domain TEXT    DEFAULT 'constructii',
+    preferred_domain TEXT    DEFAULT 'general',
     voice_preference TEXT,
     avatar_mascot    TEXT,
     theme_color      TEXT    DEFAULT '#ff8c00',
@@ -109,7 +109,7 @@ class SQLiteService:
                     resolution, download_date, source_url, relevance_score)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (md5_hash, filename, filepath, domain, subdomain, file_type,
-                 resolution, datetime.utcnow().isoformat(), source_url, relevance_score),
+                 resolution, datetime.now(timezone.utc).isoformat(), source_url, relevance_score),
             )
             conn.commit()
             return cursor.lastrowid
@@ -138,7 +138,7 @@ class SQLiteService:
         return await loop.run_in_executor(None, self._get_reviews_due_sync, user_id)
 
     def _get_reviews_due_sync(self, user_id: int) -> List[dict]:
-        today = datetime.utcnow().date().isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM spaced_repetition WHERE user_id=? AND next_review<=?",
@@ -147,7 +147,7 @@ class SQLiteService:
             return [dict(r) for r in rows]
 
     async def upsert_user(self, username: str, display_name: str = "",
-                          preferred_domain: str = "constructii",
+                          preferred_domain: str = "general",
                           theme_color: str = "#ff8c00") -> int:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._upsert_user_sync,
@@ -161,7 +161,7 @@ class SQLiteService:
                    ON CONFLICT(username) DO UPDATE SET
                      preferred_domain=excluded.preferred_domain,
                      theme_color=excluded.theme_color""",
-                (username, display_name, preferred_domain, theme_color, datetime.utcnow().isoformat()),
+                (username, display_name, preferred_domain, theme_color, datetime.now(timezone.utc).isoformat()),
             )
             conn.commit()
             row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()

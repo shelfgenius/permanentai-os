@@ -41,7 +41,7 @@ class ModeRequest(BaseModel):
 
 class SpeakRequest(BaseModel):
     text: str
-    domain: str = "constructii"
+    domain: str = "general"
 
 
 @router.post("/mode")
@@ -178,7 +178,7 @@ async def _exec_aura(query: str) -> str:
         from orchestrator.orchestrator import get_orchestrator
         orch = get_orchestrator()
         full = ""
-        async for ev in orch.query(message=query, domain="constructii"):
+        async for ev in orch.query(message=query, domain="general"):
             if ev.get("type") == "text_fragment":
                 full += ev.get("content", "") + " "
             if ev.get("type") == "done":
@@ -507,7 +507,7 @@ async def ask_fulfillment(request: Request):
             if get_mode() == "a2dp":
                 try:
                     tts = get_tts_service()
-                    wav_bytes = await tts.synthesize(answer, "constructii")
+                    wav_bytes = await tts.synthesize(answer, "general")
                     bridge = get_a2dp_bridge()
                     await bridge.play_audio(wav_bytes)
                 except Exception as tts_err:

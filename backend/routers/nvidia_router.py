@@ -226,7 +226,7 @@ async def nvidia_coding_chat(req: CodingChatRequest):
     # Current NVIDIA catalog name for Qwen coder
     payload = {
         "model": "qwen/qwen2.5-coder-32b-instruct",
-        "messages": [m.dict() for m in req.messages],
+        "messages": [m.model_dump() for m in req.messages],
         "max_tokens": req.max_tokens,
         "temperature": req.temperature,
         "stream": req.stream,
@@ -328,7 +328,7 @@ async def nvidia_aura_chat(req: AuraChatRequest):
     if not api_key:
         raise HTTPException(503, "NVIDIA_API_KEY not configured for Nemotron chat")
 
-    msgs = [m.dict() for m in req.messages]
+    msgs = [m.model_dump() for m in req.messages]
     if not msgs or msgs[0].get("role") != "system":
         msgs.insert(0, {"role": "system", "content": AURA_SYSTEM_PROMPT})
 

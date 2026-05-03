@@ -73,9 +73,10 @@ def _poll_gmail_imap(user: str, password: str):
 # ── WhatsApp / Instagram Webhooks ─────────────────────────────────────────────
 @router.get("/whatsapp/webhook")
 async def whatsapp_verify(request: Request):
+    from fastapi.responses import PlainTextResponse
     params = dict(request.query_params)
     if params.get("hub.mode") == "subscribe" and params.get("hub.challenge"):
-        return int(params["hub.challenge"])
+        return PlainTextResponse(params["hub.challenge"])
     raise HTTPException(status_code=403, detail="Verification failed")
 
 

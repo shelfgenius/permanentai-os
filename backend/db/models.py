@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean,
@@ -35,8 +35,8 @@ class TechnicalDocument(Base):
     error_message = Column(Text, nullable=True)
     chunk_count = Column(Integer, default=0)
     metadata_ = Column("metadata", JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
@@ -55,7 +55,7 @@ class DocumentChunk(Base):
     content_tokens = Column(Integer, nullable=True)
     embedding = Column(Vector(EMBED_DIM), nullable=True)
     metadata_ = Column("metadata", JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     document = relationship("TechnicalDocument", back_populates="chunks")
 
@@ -80,8 +80,8 @@ class PartsInventory(Base):
     supplier_info = Column(JSON, default=dict)
     tags = Column(ARRAY(String), default=list)
     embedding = Column(Vector(EMBED_DIM), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_parts_category", "category"),
@@ -109,8 +109,8 @@ class AssetRegistry(Base):
     tags = Column(ARRAY(String), default=list)
     metadata_ = Column("metadata", JSON, default=dict)
     embedding = Column(Vector(EMBED_DIM), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_asset_type_category", "asset_type", "category"),
@@ -123,8 +123,8 @@ class ChatSession(Base):
     id = Column(String(64), primary_key=True)
     title = Column(String(512), default="New Query")
     category = Column(String(64), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
 
@@ -138,6 +138,6 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False)
     sources = Column(JSON, default=list)
     token_count = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     session = relationship("ChatSession", back_populates="messages")

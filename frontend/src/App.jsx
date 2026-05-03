@@ -25,6 +25,7 @@ const SlideHub   = lazy(() => import(/* webpackChunkName: "slide" */   './pages/
 const AuraChat   = lazy(() => import(/* webpackChunkName: "aura-chat" */ './pages/AuraChat.jsx'));
 const LegalPage  = lazy(() => import(/* webpackChunkName: "legal" */   './pages/LegalPage.jsx'));
 const CertsPage  = lazy(() => import(/* webpackChunkName: "certs" */   './pages/CertsPage.jsx'));
+const PascalHub  = lazy(() => import(/* webpackChunkName: "pascal" */  './pages/PascalHub.jsx'));
 
 // Minimal loading spinner shown while a lazy chunk downloads
 function PageLoader() {
@@ -49,6 +50,7 @@ const PAGE_ROUTES = {
   youtube: '/youtube',
   legal:   '/legal',
   certs:   '/certs',
+  pascal:  '/pascal',
 };
 
 export default function App() {
@@ -223,6 +225,9 @@ function AppShell() {
               } />
               <Route path="/certs" element={
                 <CertsPage onBack={goBack} />
+              } />
+              <Route path="/pascal" element={
+                <PascalHub onBack={goBack} />
               } />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

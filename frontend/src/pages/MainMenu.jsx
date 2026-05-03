@@ -77,6 +77,16 @@ const PRODUCTS = [
     icon: '▶',
     voice: 'None',
   },
+  {
+    id: 'pascal',
+    label: 'PASCAL',
+    sub: '3D Building Editor',
+    desc: 'Interactive 3D scene editor — drag, build & design spaces in your browser.',
+    gradient: 'linear-gradient(135deg, #5b4cff 0%, #8b5cf6 100%)',
+    accent: '#5b4cff',
+    icon: '🏗',
+    voice: 'None',
+  },
 ];
 
 /* ═══════════════════════════════════════════════════════════

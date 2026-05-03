@@ -11,7 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
 import bcrypt as _bcrypt
 
 logger = logging.getLogger("auth_service")

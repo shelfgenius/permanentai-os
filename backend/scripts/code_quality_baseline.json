@@ -1,0 +1,157 @@
+{
+  "bare_excepts": {},
+  "files_scanned": 66,
+  "import_heavy": {
+    "main.py": 32,
+    "routers\\echo_router.py": 34
+  },
+  "large_functions": {
+    "routers\\alexa_router.py": [
+      {
+        "lines": 165,
+        "name": "ask_fulfillment"
+      }
+    ],
+    "routers\\aura_voice_router.py": [
+      {
+        "lines": 128,
+        "name": "aura_tts"
+      }
+    ],
+    "routers\\blender_router.py": [
+      {
+        "lines": 90,
+        "name": "_generate_nvidia"
+      },
+      {
+        "lines": 86,
+        "name": "_write_scene_glb"
+      }
+    ],
+    "routers\\chat.py": [
+      {
+        "lines": 95,
+        "name": "chat_stream"
+      }
+    ],
+    "routers\\echo_router.py": [
+      {
+        "lines": 224,
+        "name": "echo_chat"
+      },
+      {
+        "lines": 106,
+        "name": "stream_gen"
+      }
+    ],
+    "routers\\elevenlabs_router.py": [
+      {
+        "lines": 85,
+        "name": "elevenlabs_tts"
+      }
+    ],
+    "routers\\nexus_router.py": [
+      {
+        "lines": 110,
+        "name": "execute_command"
+      }
+    ],
+    "routers\\pdf_router.py": [
+      {
+        "lines": 100,
+        "name": "research_to_pdf"
+      }
+    ],
+    "routers\\sky_router.py": [
+      {
+        "lines": 118,
+        "name": "get_weather"
+      }
+    ],
+    "routers\\slide_router.py": [
+      {
+        "lines": 120,
+        "name": "_generate_with_ai"
+      },
+      {
+        "lines": 151,
+        "name": "slide_export"
+      }
+    ],
+    "routers\\youtube_router.py": [
+      {
+        "lines": 87,
+        "name": "youtube_search"
+      },
+      {
+        "lines": 93,
+        "name": "youtube_stream"
+      },
+      {
+        "lines": 109,
+        "name": "youtube_related"
+      }
+    ],
+    "scripts\\code_quality_check.py": [
+      {
+        "lines": 81,
+        "name": "main"
+      }
+    ],
+    "scripts\\test_injection_protection.py": [
+      {
+        "lines": 115,
+        "name": "main"
+      }
+    ],
+    "services\\ambient_engine.py": [
+      {
+        "lines": 90,
+        "name": "_scout"
+      }
+    ],
+    "services\\browser_agent.py": [
+      {
+        "lines": 82,
+        "name": "run_browser_agent"
+      }
+    ]
+  },
+  "oversized_files": {
+    "routers\\alexa_router.py": 531,
+    "routers\\blender_router.py": 618,
+    "routers\\echo_router.py": 603,
+    "routers\\nvidia_router.py": 446,
+    "routers\\slide_router.py": 527,
+    "routers\\youtube_router.py": 875,
+    "services\\echo_engine.py": 998,
+    "services\\memory_graph.py": 601,
+    "services\\safety_system.py": 411,
+    "services\\social_clients.py": 558
+  },
+  "tech_debt": {
+    "by_file": {
+      "routers\\alexa_router.py": {
+        "XXX": 1
+      },
+      "routers\\email_router.py": {
+        "XXX": 3
+      },
+      "scripts\\code_quality_check.py": {
+        "FIXME": 3,
+        "HACK": 3,
+        "TODO": 3,
+        "XXX": 2
+      }
+    },
+    "totals": {
+      "FIXME": 3,
+      "HACK": 3,
+      "TODO": 3,
+      "XXX": 6
+    }
+  },
+  "threshold_loc": 400,
+  "total_bare_excepts": 0,
+  "total_loc": 15363
+}

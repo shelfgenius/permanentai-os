@@ -229,6 +229,8 @@ async def test_connection():
         if r.status_code == 200:
             data = r.json()
             return {"connected": True, "message": data.get("message", "OK"), "version": data.get("version", "?")}
-        return {"connected": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
+        logger.warning("HA connection test failed: HTTP %d — %s", r.status_code, r.text[:200])
+        return {"connected": False, "error": f"HTTP {r.status_code}"}
     except Exception as e:
-        return {"connected": False, "error": str(e)[:200]}
+        logger.warning("HA connection test error: %s", e)
+        return {"connected": False, "error": "Connection failed — check URL and network"}

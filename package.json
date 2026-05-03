@@ -14,17 +14,24 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
-  "keywords": ["electron", "react", "fastapi", "rag", "technical", "desktop"],
+  "keywords": [
+    "electron",
+    "react",
+    "fastapi",
+    "rag",
+    "technical",
+    "desktop"
+  ],
   "author": "TechQuery",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "electron": "^28.1.0",
-    "electron-builder": "^24.9.1",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.0",
     "wait-on": "^7.2.0"
   },
   "dependencies": {
-    "axios": "^1.6.5"
+    "axios": "^1.7.9"
   },
   "build": {
     "appId": "com.techquery.desktop",
@@ -43,7 +50,11 @@
       {
         "from": "backend",
         "to": "backend",
-        "filter": ["**/*", "!__pycache__/**", "!*.pyc"]
+        "filter": [
+          "**/*",
+          "!__pycache__/**",
+          "!*.pyc"
+        ]
       }
     ],
     "win": {

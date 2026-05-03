@@ -158,7 +158,9 @@ def _extract_tunnel_url(text: str) -> str | None:
     if bm:
         candidate = bm.group(1).rstrip("/")
         # Must not be a generic cloudflare.com informational link
-        if "trycloudflare.com" in candidate or "cfargotunnel.com" in candidate:
+        from urllib.parse import urlparse as _urlparse
+        _host = (_urlparse(candidate).hostname or "").lower()
+        if _host.endswith(".trycloudflare.com") or _host.endswith(".cfargotunnel.com"):
             return candidate
     # 2. Plain trycloudflare.com URL anywhere on the line
     m = TUNNEL_RE.search(text)

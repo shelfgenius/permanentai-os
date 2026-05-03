@@ -67,6 +67,7 @@ _try_import("knowledge", "routers.knowledge_lite", "router")
 _try_import("orchestrator", "routers.orchestrator_router", "router")
 _try_import("scavenger", "routers.scavenger_router", "router")
 _try_import("xtts", "routers.xtts_router", "router")
+_try_import("autopilot", "routers.autopilot_router", "router")
 
 logging.basicConfig(
     level=logging.INFO,

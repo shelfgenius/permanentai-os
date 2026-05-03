@@ -31,13 +31,13 @@ logger = logging.getLogger("elevenlabs-proxy")
 app = FastAPI(title="ElevenLabs Local Proxy")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ── Config ────────────────────────────────────────────────────────
-API_KEY  = os.getenv("ELEVENLABS_API_KEY", "sk_d758e1d1105cd9a22ee6435b498edd64f6563af45c73f0bd")
+API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
 VOICE_EN = os.getenv("ELEVENLABS_VOICE_EN", "DvA6jVPzwhTAbLWwZd0K")
 VOICE_RO = os.getenv("ELEVENLABS_VOICE_RO", "urzoE6aZYmSRdFQ6215h")
 MODEL_ID = "eleven_v3"
@@ -118,7 +118,7 @@ async def stt(audio: UploadFile = File(...)):
 @app.get("/elevenlabs/config")
 async def config():
     return {
-        "key": API_KEY,
+        "key_set": bool(API_KEY),
         "voice_en": VOICE_EN,
         "voice_ro": VOICE_RO,
         "model": MODEL_ID,
@@ -134,7 +134,7 @@ async def health():
 if __name__ == "__main__":
     print("\n  ElevenLabs Local Proxy")
     print("  ─────────────────────")
-    print(f"  API Key: ...{API_KEY[-8:]}")
+    print(f"  API Key: {'configured' if API_KEY else 'NOT SET — set ELEVENLABS_API_KEY env var'}")
     print(f"  Voice EN: {VOICE_EN}")
     print(f"  Voice RO: {VOICE_RO}")
     print(f"  Running on http://localhost:8766\n")

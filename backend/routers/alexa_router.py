@@ -241,8 +241,8 @@ async def _exec_sculpt(params: dict) -> str:
                 # We need to read the file directly
                 from routers.blender_router import SCULPT_DIR
                 filename = glb_url.split("/")[-1]
-                filepath = SCULPT_DIR / filename
-                if filepath.exists():
+                filepath = (SCULPT_DIR / filename).resolve()
+                if filepath.is_relative_to(SCULPT_DIR.resolve()) and filepath.exists():
                     import base64 as b64mod
                     raw_b64 = b64mod.b64encode(filepath.read_bytes()).decode()
                     await send_file(SendFileRequest(

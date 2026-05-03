@@ -48,11 +48,15 @@ def _md5(path: Path) -> str:
 
 
 def _get_folder(domain: str, file_type: str) -> Path:
-    base_folder = DOMAIN_FOLDERS.get(domain.lower(), domain.capitalize())
+    # Sanitize domain to prevent path traversal
+    safe_domain = re.sub(r'[^a-zA-Z0-9_-]', '_', domain)
+    base_folder = DOMAIN_FOLDERS.get(safe_domain.lower(), safe_domain.capitalize())
     sub = "Imagini" if file_type in IMAGE_FORMATS else \
           "Video" if file_type in VIDEO_FORMATS else \
           "Documente"
-    folder = DATA_ROOT / base_folder / sub
+    folder = (DATA_ROOT / base_folder / sub).resolve()
+    if not folder.is_relative_to(DATA_ROOT.resolve()):
+        raise ValueError(f"Invalid domain folder: {domain}")
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -115,7 +119,8 @@ def download_file(url: str, domain: str) -> Optional[Path]:
         parsed = urlparse(url)
         ext = Path(parsed.path).suffix.lower()
 
-        if ext in VIDEO_FORMATS or "youtube.com" in url or "youtu.be" in url:
+        hostname = (parsed.hostname or "").lower()
+        if ext in VIDEO_FORMATS or hostname.endswith("youtube.com") or hostname.endswith("youtu.be"):
             return download_video_ytdlp(url, domain)
 
         headers = {"User-Agent": "Mozilla/5.0 (compatible; TechQuery/2.0)"}
@@ -133,7 +138,10 @@ def download_file(url: str, domain: str) -> Optional[Path]:
 
         folder = _get_folder(domain, ext)
         fname = re.sub(r"[^a-zA-Z0-9_.-]", "_", Path(parsed.path).name)[:80] or "file"
-        dest = folder / (fname if fname.endswith(ext) else fname + ext)
+        dest = (folder / (fname if fname.endswith(ext) else fname + ext)).resolve()
+        if not dest.is_relative_to(folder.resolve()):
+            logger.warning("Path traversal blocked: %s", dest)
+            return None
 
         with open(dest, "wb") as f:
             for chunk in resp.iter_content(8192):

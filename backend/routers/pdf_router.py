@@ -103,10 +103,21 @@ def _html_to_pdf(html: str, output_path: str) -> None:
     # Fallback: fpdf2 (simpler, no CSS support)
     try:
         from fpdf import FPDF
-        import re
+        from html.parser import HTMLParser
 
-        # Strip HTML tags for plain-text PDF
-        text = re.sub(r'<[^>]+>', '', html)
+        # Strip HTML tags safely (no regex on untrusted input)
+        class _TagStripper(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self._parts: list[str] = []
+            def handle_data(self, d: str):
+                self._parts.append(d)
+            def get_text(self) -> str:
+                return "".join(self._parts)
+
+        _stripper = _TagStripper()
+        _stripper.feed(html)
+        text = _stripper.get_text()
         text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
 
         pdf = FPDF()

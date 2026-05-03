@@ -154,6 +154,8 @@ async def elevenlabs_tts(req: TtsRequest):
         raise HTTPException(503, "ELEVENLABS_API_KEY not configured")
     if not req.text.strip():
         raise HTTPException(400, "Empty text")
+    if len(req.text) > 10000:
+        raise HTTPException(400, "Text too long (max 10000 characters)")
 
     # Detect language & pick voice
     lang = req.language or _detect_language(req.text)

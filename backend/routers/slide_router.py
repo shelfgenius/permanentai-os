@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
+from services.skill_loader import get_skills_for_context
 
 logger = logging.getLogger("slide_router")
 router = APIRouter(prefix="/slide", tags=["slide"])
@@ -131,34 +132,99 @@ async def _generate_with_ai(prompt: str, count: int, theme: dict, title_bg: str,
              "If the prompt is in Romanian, everything must be in Romanian. If English, all in English."
     )
     audience_line = f"Target audience: {audience}. Adapt tone and depth accordingly.\n" if audience else ""
+
+    # ── Visual anchor system — one font pair and palette for ALL slides ──
+    font_presets = {
+        "professional": "Inter + Source Serif Pro",
+        "corporate": "IBM Plex Sans + IBM Plex Serif",
+        "minimal": "Helvetica Neue + Georgia",
+        "bold": "Oswald + Roboto",
+        "creative": "Space Grotesk + DM Sans",
+        "dark": "JetBrains Mono + Inter",
+    }
+    anchor_fonts = font_presets.get(style, "Inter + Source Serif Pro")
+    anchor_colors = f"{theme['accent']}, {theme['text']}, {theme['secondary']}, {theme['bg']}"
+
+    # ── Structured slide framework based on carousel methodology ──
+    if count <= 6:
+        structure_guide = (
+            "Slide structure (follow this arc):\n"
+            "  Slide 1: HOOK — the headline that stops the scroll. Bold, specific, curiosity-driven.\n"
+            "  Slide 2: PROBLEM — what most people get wrong / the common mistake.\n"
+            "  Slide 3: INSIGHT — the non-obvious unlock, the 'sauce'.\n"
+            "  Slide 4: ANCHOR — the one rule or principle that holds it all together.\n"
+            "  Slide 5: SYSTEM — the repeatable formula or framework in one clear visual.\n"
+            "  Slide 6: CTA — what to do next. Clear, single action.\n"
+        )
+    elif count <= 10:
+        structure_guide = (
+            "Slide structure (follow this arc):\n"
+            "  Slide 1: HOOK — bold headline that grabs attention immediately.\n"
+            "  Slide 2: CONTEXT — set the scene, establish why this matters now.\n"
+            "  Slide 3: PROBLEM — what most people get wrong.\n"
+            "  Slides 4-{0}: BODY — key insights, one idea per slide, build on each other.\n"
+            "  Slide {1}: SYSTEM — the takeaway framework or summary.\n"
+            "  Slide {2}: CTA — clear call to action.\n"
+        ).format(count - 2, count - 1, count)
+    else:
+        structure_guide = (
+            "Slide structure:\n"
+            "  Slide 1: HOOK — compelling title slide.\n"
+            "  Slide 2: AGENDA — overview of what's covered.\n"
+            f"  Slides 3-{count - 2}: BODY — one key idea per slide, grouped into 2-3 sections "
+            "with section divider slides.\n"
+            f"  Slide {count - 1}: SUMMARY — key takeaways.\n"
+            f"  Slide {count}: CTA / CLOSING — next steps or call to action.\n"
+        )
+
     system_msg = (
-        "You are an advanced AI presentation designer, not just a text generator.\n\n"
+        "You are an expert presentation designer who creates visually consistent, editorially sharp decks.\n\n"
+        "VISUAL ANCHOR SYSTEM — CRITICAL:\n"
+        f"Every slide MUST use the same visual language. This is non-negotiable.\n"
+        f"  Locked font pairing: {anchor_fonts}\n"
+        f"  Locked color palette: {anchor_colors}\n"
+        "  Locked spacing: consistent margins, padding, hierarchy across all slides.\n"
+        "  Every slide must feel like it belongs to the same deck — same typography weight, "
+        "same color treatment, same mood. If one slide looks like it came from a different "
+        "presentation, you have failed.\n\n"
         f"LANGUAGE: {lang_instruction}\n"
-        f"STYLE: {style} (adapt visuals and tone).\n"
-        f"{audience_line}"
-        "\nCRITICAL RULES:\n"
-        "1. NO BASIC SLIDES — every slide must feel professionally designed.\n"
-        "2. IMAGES ARE MANDATORY — every slide must include an image_desc field describing a relevant image.\n"
-        "3. Use concise bullet points, highlight key ideas.\n"
-        "4. Include charts/infographics where data is involved.\n"
-        "5. Include a cover slide (first) and closing slide (last).\n\n"
+        f"STYLE: {style}\n"
+        f"{audience_line}\n"
+        f"{structure_guide}\n"
+        "COPY RULES:\n"
+        "- Write the slide copy FIRST in your reasoning, then design around it.\n"
+        "- Each slide: 1 headline (max 8 words), 1 support line, 3-5 bullets max.\n"
+        "- Headlines must be specific and sharp. 'AI Content Creation' is bad. "
+        "'Why your AI carousel looks random' is good.\n"
+        "- Bullets must be concise, scannable, parallel structure.\n"
+        "- No filler. Every word must earn its place.\n\n"
+        "DESIGN RULES:\n"
+        "1. IMAGES MANDATORY — every slide needs an image_desc describing a relevant visual.\n"
+        "2. Layouts must vary but stay in the same visual family.\n"
+        "3. Charts only where real data supports them — never decorative.\n"
+        "4. The first slide sets the visual anchor. Every subsequent slide matches it.\n"
+        "5. Include a cover slide (first) and CTA/closing slide (last).\n\n"
+        "DO NOT:\n"
+        "- Use different fonts across slides\n"
+        "- Use different color palettes across slides\n"
+        "- Write vague headlines like 'Overview' or 'Key Points'\n"
+        "- Add decorative charts without real data\n"
+        "- Generate generic corporate filler\n\n"
         f"Generate exactly {count} slides as a JSON array. Each slide object MUST have:\n"
-        '  - "type": one of "title", "content", "split", "section", "chart", "closing"\n'
-        '  - "title": slide title\n'
-        '  - "subtitle": subtitle\n'
-        '  - "layout": one of "default", "two-col", "image-left", "image-right", "full-image", "centered"\n'
-        '  - "bullets": array of 3-5 bullet strings (empty for title/section slides)\n'
-        '  - "notes": speaker notes\n'
-        '  - "source": citation or null\n'
-        '  - "image_desc": specific description of what the image should contain (MANDATORY)\n'
-        '  - "icons": array of suggested icon names (e.g. ["chart-bar", "globe", "users"])\n'
-        '  - "chart_type": "bar" | "pie" | "line" | "area" | null\n'
-        '  - "chart_data": description of chart data if chart_type is set, else null\n'
-        '  - "colors": suggested color palette for this slide (e.g. "#1a73e8, #34a853, #ea4335")\n'
-        '  - "fonts": suggested font pairing (e.g. "Montserrat + Open Sans")\n\n'
-        "Make content detailed, specific, and factual with real data points.\n"
-        "The result should feel like it was made by a professional designer.\n\n"
-        "Return ONLY the JSON array, no markdown, no explanation."
+        '  "type": "title" | "content" | "split" | "section" | "chart" | "closing"\n'
+        '  "title": slide headline (sharp, specific, max 8 words)\n'
+        '  "subtitle": support line\n'
+        '  "layout": "default" | "two-col" | "image-left" | "image-right" | "full-image" | "centered"\n'
+        '  "bullets": array of 3-5 bullet strings (empty for title/section)\n'
+        '  "notes": speaker notes (2-3 sentences of what to say)\n'
+        '  "source": citation or null\n'
+        '  "image_desc": specific image description (MANDATORY, be concrete not abstract)\n'
+        '  "icons": array of icon names (e.g. ["chart-bar", "globe", "users"])\n'
+        '  "chart_type": "bar" | "pie" | "line" | "area" | null\n'
+        '  "chart_data": chart data description if chart_type set, else null\n'
+        f'  "colors": MUST be "{anchor_colors}" for every slide\n'
+        f'  "fonts": MUST be "{anchor_fonts}" for every slide\n\n'
+        "Return ONLY the JSON array. No markdown. No explanation."
     )
 
     payload = {

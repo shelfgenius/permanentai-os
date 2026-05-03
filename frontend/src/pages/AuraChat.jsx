@@ -15,17 +15,23 @@ const AI_MODELS = [
 // ─── Voice hook — MediaRecorder + Backend Parakeet ASR ──────────────────────
 // Records audio via getUserMedia/MediaRecorder, sends to backend for
 // transcription. Uses AudioContext analyzer for real orb visualization.
-function useVoice(backendUrl) {
+function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silenceThreshold = 0.04 } = {}) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioData, setAudioData] = useState(new Uint8Array(128));
   const [transcript, setTranscript] = useState('');
+  const [silenceRatio, setSilenceRatio] = useState(0); // 0..1 progress toward auto-send
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
+  const silenceStartRef = useRef(null);
+  const hasSpeechRef = useRef(false);
+  const autoStopFiredRef = useRef(false);
+  const onAutoTranscriptRef = useRef(onAutoTranscript);
+  onAutoTranscriptRef.current = onAutoTranscript;
 
   // Audio level analyzer for orb
   const startAnalyzer = useCallback((stream) => {
@@ -42,8 +48,32 @@ function useVoice(backendUrl) {
       const tick = () => {
         const arr = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(arr);
-        setAudioLevel(arr.reduce((a, b) => a + b, 0) / arr.length / 255);
+        const level = arr.reduce((a, b) => a + b, 0) / arr.length / 255;
+        setAudioLevel(level);
         setAudioData(arr);
+
+        // ── Silence detection for auto-send ──
+        if (level > silenceThreshold) {
+          // User is speaking
+          hasSpeechRef.current = true;
+          silenceStartRef.current = null;
+          setSilenceRatio(0);
+        } else if (hasSpeechRef.current) {
+          // User has spoken before and is now silent
+          if (!silenceStartRef.current) {
+            silenceStartRef.current = performance.now();
+          }
+          const elapsed = performance.now() - silenceStartRef.current;
+          setSilenceRatio(Math.min(elapsed / silenceTimeout, 1));
+          if (elapsed >= silenceTimeout && !autoStopFiredRef.current) {
+            autoStopFiredRef.current = true;
+            console.log('[AURA] Silence detected — auto-stopping recording');
+            // Auto-stop: stop recorder, transcribe, call callback
+            _autoStop();
+            return; // stop the tick loop — cleanup will handle it
+          }
+        }
+
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -54,7 +84,30 @@ function useVoice(backendUrl) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     setAudioLevel(0);
     setAudioData(new Uint8Array(128));
+    setSilenceRatio(0);
+    silenceStartRef.current = null;
+    hasSpeechRef.current = false;
+    autoStopFiredRef.current = false;
   }, []);
+
+  // Auto-stop triggered by silence detection
+  const _autoStop = useCallback(async () => {
+    stopAnalyzer();
+    setIsRecording(false);
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === 'inactive') return;
+    rec.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+      chunksRef.current = [];
+      console.log('[AURA] Auto-stop blob size:', blob.size);
+      if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); return; }
+      const text = await transcribeAudio(blob);
+      if (text && text.trim() && onAutoTranscriptRef.current) {
+        onAutoTranscriptRef.current(text.trim());
+      }
+    };
+    rec.stop();
+  }, [stopAnalyzer, transcribeAudio]);
 
   // Fetch ElevenLabs config once for direct browser STT
   const elConfigRef = useRef(null);
@@ -163,7 +216,7 @@ function useVoice(backendUrl) {
     };
   }, []);
 
-  return { isRecording, audioLevel, audioData, transcript, toggleRecording };
+  return { isRecording, audioLevel, audioData, transcript, toggleRecording, silenceRatio };
 }
 
 // ─── State Indicator ───────────────────────────────────────────────
@@ -279,7 +332,7 @@ function AuraMusicWidget({ onClose }) {
 
 // ─── Feature Cards (3D Tilt) ───────────────────────────────────────
 const FEATURES = [
-  { Icon: Mic, title: 'Voice First', desc: 'Speak naturally with AURA. Just tap the microphone and have a fluid conversation — no typing needed.', gradient: 'from-[#B87333]/10 to-[#CD7F32]/5' },
+  { Icon: Mic, title: 'Voice First', desc: 'Speak naturally with AURA. She listens and auto-sends when you pause — no buttons needed for a fluid conversation.', gradient: 'from-[#B87333]/10 to-[#CD7F32]/5' },
   { Icon: Search, title: 'Deep Research', desc: 'Upload documents, analyze data, and get comprehensive research reports in seconds.', gradient: 'from-[#B87333]/10 to-[#CD7F32]/5' },
   { Icon: Presentation, title: 'Smart Presentations', desc: 'Generate beautiful PowerPoint presentations from a simple conversation.', gradient: 'from-[#B87333]/10 to-[#CD7F32]/5' },
 ];
@@ -347,7 +400,15 @@ function FeatureCards() {
 // ═══════════════════════════════════════════════════════════════════
 export default function AuraChat({ onBack }) {
   const { backendUrl } = useStore();
-  const voice = useVoice(backendUrl);
+  const handleSendRef = useRef(null);
+  const voice = useVoice(backendUrl, {
+    silenceTimeout: 2000,
+    silenceThreshold: 0.04,
+    onAutoTranscript: (text) => {
+      console.log('[AURA] Auto-transcript from silence detection:', text.slice(0, 60));
+      if (handleSendRef.current) handleSendRef.current(text);
+    },
+  });
   const stepId = useRef(0);
   const abortRef = useRef(null);
   const conversationRef = useRef([]);
@@ -392,7 +453,7 @@ export default function AuraChat({ onBack }) {
   startListeningRef.current = startListening;
 
   // ── Nemotron streaming chat (Brain) ──────────────────────────────
-  const handleSendMessage = useCallback(async (message) => {
+  const handleSendMessage = useCallback(async (message, { autoRestart = false } = {}) => {
     console.log('[AURA] handleSendMessage:', message.slice(0, 50));
     if (!message.trim() || isProcessing) return;
     setIsProcessing(true);
@@ -528,6 +589,7 @@ export default function AuraChat({ onBack }) {
     }
   }, [isProcessing, backendUrl, addStep]);
 
+  handleSendRef.current = handleSendMessage;
   const handleSend = () => { if (inputValue.trim()) { handleSendMessage(inputValue.trim()); setInputValue(''); } };
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
@@ -837,11 +899,19 @@ export default function AuraChat({ onBack }) {
           </button>
           <button onClick={handleToggleVoice}
             className={`mic-btn ${voice.isRecording ? 'recording' : ''}`}
-            title={voice.isRecording ? 'Stop recording' : 'Start voice input'}>
+            title={voice.isRecording ? 'Listening — auto-sends on silence' : 'Start voice input'}>
             {voice.isRecording ? <MicOff size={20} /> : <Mic size={20} />}
             {voice.isRecording && (
               <div className="mic-ring"
                 style={{ transform: `scale(${1 + voice.audioLevel * 0.2})`, opacity: 0.4 + voice.audioLevel * 0.3, transition: 'transform 0.15s ease-out, opacity 0.15s ease-out' }} />
+            )}
+            {/* Silence countdown ring — fills as auto-send approaches */}
+            {voice.isRecording && voice.silenceRatio > 0 && (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx="22" cy="22" r="20" fill="none" stroke="rgba(184,115,51,0.3)" strokeWidth="2"
+                  strokeDasharray={`${voice.silenceRatio * 125.6} 125.6`}
+                  style={{ transition: 'stroke-dasharray 0.15s ease-out' }} />
+              </svg>
             )}
           </button>
         </div>

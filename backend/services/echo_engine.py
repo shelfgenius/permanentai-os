@@ -32,12 +32,115 @@ logger = logging.getLogger("echo_engine")
 _DATA_DIR = Path(os.getenv("ECHO_DATA_DIR", str(Path(__file__).resolve().parent.parent / "data" / "echo-data")))
 _MEMORY_DIR = _DATA_DIR / "memory"
 _SESSIONS_DIR = _DATA_DIR / "sessions"
+_AGENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "echo-agents"
+_SKILLS_DIR = Path(__file__).resolve().parent.parent / "data" / "echo-skills"
 
 for d in [_MEMORY_DIR, _SESSIONS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ── Memory concurrency locks ─────────────────────────────────────
 _user_locks: Dict[str, asyncio.Lock] = {}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 0. PERSONA LOADER
+#    Loads rich agent personas from .md files in data/echo-agents/
+#    Inspired by agency-agents' specialist system
+# ═══════════════════════════════════════════════════════════════════
+
+_persona_cache: Dict[str, Dict[str, str]] = {}
+
+
+def _parse_persona_file(path: Path) -> Dict[str, str]:
+    """Parse a persona .md file with YAML frontmatter + markdown body."""
+    raw = path.read_text(encoding="utf-8")
+    meta: Dict[str, str] = {}
+    body = raw
+
+    # Parse YAML-like frontmatter between --- delimiters
+    if raw.startswith("---"):
+        parts = raw.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].strip().splitlines():
+                if ":" in line:
+                    key, _, val = line.partition(":")
+                    meta[key.strip()] = val.strip()
+            body = parts[2].strip()
+
+    return {
+        "id": meta.get("id", path.stem),
+        "name": meta.get("name", path.stem.replace("-", " ").title()),
+        "description": meta.get("description", ""),
+        "prompt": body,
+    }
+
+
+def load_personas() -> Dict[str, Dict[str, str]]:
+    """Load all persona files from the echo-agents directory. Cached."""
+    global _persona_cache
+    if _persona_cache:
+        return _persona_cache
+
+    if not _AGENTS_DIR.exists():
+        return {}
+
+    for p in sorted(_AGENTS_DIR.glob("*.md")):
+        try:
+            persona = _parse_persona_file(p)
+            _persona_cache[persona["id"]] = persona
+        except Exception as e:
+            logger.warning("Failed to load persona %s: %s", p.name, e)
+
+    logger.info("Loaded %d agent personas from %s", len(_persona_cache), _AGENTS_DIR)
+    return _persona_cache
+
+
+def get_persona(persona_id: str) -> Optional[Dict[str, str]]:
+    """Get a specific persona by ID."""
+    personas = load_personas()
+    return personas.get(persona_id)
+
+
+def list_personas() -> List[Dict[str, str]]:
+    """List all available personas (id, name, description)."""
+    personas = load_personas()
+    return [
+        {"id": p["id"], "name": p["name"], "description": p["description"]}
+        for p in personas.values()
+    ]
+
+
+def reload_personas() -> int:
+    """Force reload personas from disk. Returns count loaded."""
+    global _persona_cache
+    _persona_cache = {}
+    return len(load_personas())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 0b. SKILL LOADER
+#     Delegates to the shared skill_loader module so skills are
+#     available to Echo, Aura, Slide generator, and all AI features.
+# ═══════════════════════════════════════════════════════════════════
+
+from services.skill_loader import load_all_skills, get_skill_body, get_skills_for_context
+
+
+def load_skill_files() -> Dict[str, str]:
+    """Load skill definitions from .md files. Returns {id: body_text}."""
+    all_skills = load_all_skills()
+    return {sid: s["body"] for sid, s in all_skills.items()}
+
+
+def get_skill_prompt(skill_id: str) -> Optional[str]:
+    """Get a skill prompt. File-based skills override built-in ones."""
+    body = get_skill_body(skill_id)
+    if body:
+        return body
+    # Fall through to built-in ECHO_SKILL_PROMPTS (defined below)
+    return None
+
+
 MAX_SESSION_SUMMARIES = 20
 MEMORY_SCHEMA_VERSION = 2
 
@@ -68,18 +171,39 @@ ECHO_IDENTITY = """You are Echo, an elite AI coding agent. You don't just answer
 - Minimum code that solves the problem. Nothing speculative.
 - No features beyond what was asked.
 - No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
 - If you write 200 lines and it could be 50, rewrite it.
+- Test: Would a senior engineer say this is overcomplicated? If yes, simplify.
 
 ### 3. Surgical Changes
 - Touch only what you must. Clean up only your own mess.
 - Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
-- Every changed line should trace directly to the user's request.
+- If you notice unrelated dead code, mention it — don't delete it.
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+- Test: Every changed line should trace directly to the user's request.
 
 ### 4. Goal-Driven Execution
-- Transform tasks into verifiable goals.
-- For multi-step tasks, state a brief plan with verification steps.
-- Loop until verified. Don't declare success without checking."""
+- Transform tasks into verifiable goals:
+  "Add validation" → write tests for invalid inputs, then make them pass.
+  "Fix the bug" → write a test that reproduces it, then make it pass.
+  "Refactor X" → ensure tests pass before and after.
+- For multi-step tasks, state a brief plan:
+  1. [Step] → verify: [check]
+  2. [Step] → verify: [check]
+- Strong success criteria let you loop independently.
+- Weak criteria ("make it work") require constant clarification — push for specifics.
+
+### 5. Autonomous Persistence
+- Have autonomy. Persist to completing a task.
+- If there are obvious next steps, take them instead of asking for confirmation.
+- Design verifiable criteria so you can iterate against them.
+- Test your code and validate that it works before claiming done.
+- If you notice poorly written code while working, mention it. Suggest refactoring if it helps.
+- Avoid irreversibly destructive actions without explicit approval."""
 
 ECHO_CODE_MODE = """
 ## Code Mode Protocol
@@ -102,6 +226,15 @@ Structure responses with:
 [PLANNING] — Outline what you will explain or do
 [CODING] — Code or actionable content (skip if not applicable)
 [CHECKING] — Verify and summarize"""
+
+ECHO_GROUNDED_CONTEXT = """
+## Context Grounding Policy
+You have been given context from memory and/or documents. Follow these rules:
+1. Prefer information from the provided CONTEXT over your general knowledge.
+2. If the context is sufficient, answer using it and note "[from context]".
+3. If context is insufficient, clearly say what's missing before using general knowledge.
+4. Never fabricate file contents, function signatures, or API details — if unsure, say so.
+5. When referencing code or files, cite the specific file path or memory section."""
 
 ECHO_SKILL_PROMPTS = {
     "refactor": """SKILL: REFACTOR
@@ -159,15 +292,36 @@ Before writing any code:
 6. Define success criteria for each step
 Do NOT write code yet. This is planning only.""",
 
-    "security": """SKILL: SECURITY AUDIT
-Review code for security vulnerabilities:
-1. Injection attacks (SQL, XSS, command injection)
-2. Authentication/authorization flaws
-3. Data exposure (logs, error messages, API responses)
-4. Input validation gaps
-5. Dependency vulnerabilities
-6. Secrets/credentials in code
-Rate each finding: CRITICAL / HIGH / MEDIUM / LOW with fix recommendations.""",
+    "security": """SKILL: SECURITY AUDIT (Agency Security Engineer)
+You are now operating as an adversarial security engineer. Think like an attacker to defend like an engineer.
+
+Adversarial Thinking — for every feature, ask:
+1. What can be abused? (every feature is an attack surface)
+2. What happens when this fails? (design for secure failure)
+3. Who benefits from breaking this? (understand attacker motivation)
+4. What's the blast radius? (a compromised component shouldn't bring down everything)
+
+Review for these vulnerability classes:
+- Injection: SQLi, NoSQLi, CMDi, template injection, XSS (reflected/stored/DOM)
+- Auth: broken authentication, BOLA, BFLA, privilege escalation, IDOR
+- Data: excessive exposure in logs/errors/API responses, PII leaks
+- API: rate limiting bypass, mass assignment, missing input validation
+- Supply chain: dependency CVEs, typosquatting, lock file integrity
+- Secrets: hardcoded credentials, secrets in logs or client code
+- Infrastructure: IAM over-privilege, public storage, missing encryption
+
+Severity Classification:
+- CRITICAL: RCE, auth bypass, SQL injection with data access
+- HIGH: Stored XSS, IDOR with sensitive data, privilege escalation
+- MEDIUM: CSRF on state-changing actions, missing security headers, verbose errors
+- LOW: Clickjacking on non-sensitive pages, minor info disclosure
+- INFO: Best practice deviations, defense-in-depth improvements
+
+Rules:
+- Never recommend disabling security controls — find the root cause
+- All user input is hostile — validate at every trust boundary
+- Default deny — whitelist over blacklist everywhere
+- Every finding MUST include: severity, proof of exploitability, copy-paste-ready remediation code, and CWE/OWASP reference.""",
 
     "optimize": """SKILL: PERFORMANCE OPTIMIZATION
 Analyze and optimize:
@@ -177,6 +331,56 @@ Analyze and optimize:
 4. I/O — can we batch, cache, or parallelize?
 5. Measure — show before/after with concrete metrics
 Never optimize prematurely. Only optimize what's measurably slow.""",
+
+    "review": """SKILL: CODE REVIEW (Agency Code Reviewer)
+Provide a thorough, constructive code review focused on what matters — correctness, security, maintainability, and performance — not tabs vs spaces.
+
+Priority System — mark every comment:
+- BLOCKER (must fix): Security vulnerabilities, data loss risks, race conditions, breaking API contracts, missing error handling for critical paths
+- SUGGESTION (should fix): Missing input validation, unclear naming, missing tests for important behavior, N+1 queries, code duplication
+- NIT (nice to have): Style inconsistencies, minor naming improvements, documentation gaps, alternative approaches
+
+Rules:
+1. Be specific — "SQL injection on line 42" not "security issue"
+2. Explain why — Don't just say what to change, explain the reasoning
+3. Suggest, don't demand — "Consider X because Y" not "Change this to X"
+4. Praise good code — Call out clever solutions and clean patterns
+5. Complete feedback — All concerns in one review, no drip-feeding
+
+Comment Format:
+```
+[BLOCKER/SUGGESTION/NIT] — [Category]: [Title]
+Line [N]: [What's wrong]
+Why: [Explanation of the impact]
+Suggestion: [Concrete fix with code]
+```
+
+Start with a summary: overall impression, key concerns, what's good.
+End with encouragement and clear next steps.""",
+
+    "architect": """SKILL: SYSTEM ARCHITECTURE (Agency Backend Architect)
+Design production-grade backend systems. Think in services, data flows, and failure modes.
+
+Deliverable Structure:
+1. High-Level Architecture — pattern (microservices/monolith/serverless), communication (REST/GraphQL/gRPC/events), data pattern (CQRS/event sourcing/CRUD)
+2. Service Decomposition — each service: responsibility, database, cache, APIs, events published/consumed
+3. Database Schema — tables, indexes, constraints with performance rationale
+4. API Design — endpoints, auth, rate limits, error response format, versioning strategy
+5. Failure Modes — what breaks, circuit breakers, graceful degradation, rollback
+6. Monitoring — metrics to track, alerts to set, SLOs
+
+Rules:
+- Design for horizontal scaling from day one
+- Defense in depth across all layers
+- Least privilege for all services and database access
+- Encrypt data at rest and in transit
+- Continuous monitoring and measurement
+
+Success Metrics:
+- API response times < 200ms at p95
+- System uptime > 99.9%
+- Database queries < 100ms average
+- Handles 10x normal traffic at peak""",
 }
 
 
@@ -186,9 +390,26 @@ def build_system_prompt(
     current_file: Optional[str] = None,
     current_content: Optional[str] = None,
     memory_context: Optional[str] = None,
+    persona_id: Optional[str] = None,
 ) -> str:
-    """Build the full system prompt with identity, mode, skill, and memory."""
+    """Build the full system prompt with identity, mode, skill, persona, and memory.
+
+    When persona_id is set, the persona's rich prompt is injected alongside
+    Echo's core identity. The persona provides domain expertise while Echo's
+    methodology (think-before-coding, surgical changes, etc.) still applies.
+    """
     parts = [ECHO_IDENTITY]
+
+    # Persona injection — adds domain expertise from .md agent files
+    if persona_id:
+        persona = get_persona(persona_id)
+        if persona:
+            parts.append(
+                f"\n## Active Persona: {persona['name']}\n"
+                f"[System note: You are currently operating as {persona['name']}. "
+                f"Apply the following domain expertise while maintaining Echo's core methodology.]\n\n"
+                f"{persona['prompt']}"
+            )
 
     # Mode-specific instructions
     if mode == "code" and current_file:
@@ -201,12 +422,17 @@ def build_system_prompt(
     else:
         parts.append(ECHO_CHAT_MODE)
 
-    # Skill-specific prompt
-    if skill and skill in ECHO_SKILL_PROMPTS:
-        parts.append(f"\n{ECHO_SKILL_PROMPTS[skill]}")
+    # Skill-specific prompt (file-based skills override built-in)
+    if skill:
+        file_skill = get_skill_prompt(skill)
+        if file_skill:
+            parts.append(f"\n{file_skill}")
+        elif skill in ECHO_SKILL_PROMPTS:
+            parts.append(f"\n{ECHO_SKILL_PROMPTS[skill]}")
 
-    # Memory context (from previous sessions)
+    # Memory context (from previous sessions) + grounding policy
     if memory_context:
+        parts.append(ECHO_GROUNDED_CONTEXT)
         parts.append(
             f"\n## Memory Context\n"
             f"[System note: The following is recalled context from previous sessions. "
@@ -278,29 +504,71 @@ def save_user_memory(memory: Dict[str, Any], user_id: str = "default"):
     tmp_path.replace(path)
 
 
-def build_memory_context(user_id: str = "default", max_chars: int = 2000) -> str:
-    """Build memory context string with section-aware truncation."""
+def _score_relevance(query_words: set, text: str, recency_bonus: float = 0.0) -> float:
+    """Score a text block's relevance to the query (0.0-1.0).
+
+    Uses keyword overlap + recency. Inspired by context-engineering-workflow's
+    evaluator agent, but done locally without an LLM call.
+    """
+    if not text or not query_words:
+        return recency_bonus
+    text_words = set(re.findall(r'\w{3,}', text.lower()))
+    if not text_words:
+        return recency_bonus
+    overlap = len(query_words & text_words)
+    # Jaccard-like but weighted toward recall (how much of query is covered)
+    score = overlap / max(len(query_words), 1)
+    return min(1.0, score + recency_bonus)
+
+
+def build_memory_context(
+    user_id: str = "default",
+    max_chars: int = 2000,
+    current_query: str = "",
+) -> str:
+    """Build memory context with relevance-scored section injection.
+
+    Instead of blindly dumping all memory, scores each section against
+    the current query and injects only the most relevant ones within
+    the token budget. Pattern from context-engineering-workflow.
+    """
     mem = load_user_memory(user_id)
+    query_words = set(re.findall(r'\w{3,}', current_query.lower())) if current_query else set()
 
-    # Priority order: most valuable context first
-    sections: List[str] = []
+    # Build scored sections: (score, label, text)
+    scored: List[tuple] = []
+
     if mem.get("project_context"):
-        sections.append(f"Project: {json.dumps(mem['project_context'], ensure_ascii=False)}")
+        text = json.dumps(mem["project_context"], ensure_ascii=False)
+        scored.append((_score_relevance(query_words, text, recency_bonus=0.3), "Project", text))
     if mem.get("preferences"):
-        sections.append(f"Preferences: {json.dumps(mem['preferences'], ensure_ascii=False)}")
+        text = json.dumps(mem["preferences"], ensure_ascii=False)
+        scored.append((_score_relevance(query_words, text, recency_bonus=0.2), "Preferences", text))
     if mem.get("profile"):
-        sections.append(f"User: {json.dumps(mem['profile'], ensure_ascii=False)}")
-    for s in mem.get("session_summaries", [])[-3:]:
-        sections.append(f"[Session {s.get('date', '?')}] {s.get('summary', '')}")
+        text = json.dumps(mem["profile"], ensure_ascii=False)
+        scored.append((_score_relevance(query_words, text, recency_bonus=0.15), "User", text))
 
-    # Build respecting budget — skip whole sections instead of cutting mid-value
+    # Session summaries — more recent = higher recency bonus
+    summaries = mem.get("session_summaries", [])
+    for i, s in enumerate(summaries[-5:]):  # consider last 5 sessions
+        recency = 0.1 * (i + 1) / 5  # 0.02..0.10
+        summary_text = s.get("summary", "")
+        label = f"Session {s.get('date', '?')}"
+        scored.append((_score_relevance(query_words, summary_text, recency_bonus=recency), label, summary_text))
+
+    # Sort by relevance (highest first)
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Build respecting budget — skip low-relevance sections
     result, used = [], 0
-    for section in sections:
-        if used + len(section) + 1 <= max_chars:
-            result.append(section)
-            used += len(section) + 1
-        else:
-            break
+    for score, label, text in scored:
+        # Skip sections with near-zero relevance (unless we have no query)
+        if current_query and score < 0.05:
+            continue
+        entry = f"[{label}] {text}"
+        if used + len(entry) + 1 <= max_chars:
+            result.append(entry)
+            used += len(entry) + 1
 
     return "\n".join(result)
 
@@ -311,7 +579,7 @@ def extract_memory_updates(
 ) -> Dict[str, Any]:
     """Extract things worth remembering from a conversation.
 
-    Simple heuristic-based extraction (no LLM call needed):
+    Heuristic-based extraction (fast, no LLM call):
     - Detects language preferences from text patterns
     - Detects project names from file paths
     - Detects tech stack from keywords
@@ -342,6 +610,105 @@ def extract_memory_updates(
     file_paths = re.findall(r'(?:src|app|pages|components)/\w+', all_text)
     if file_paths:
         updates["recent_files"] = list(set(file_paths))[:5]
+
+    return updates
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 2b. LLM-POWERED MEMORY EXTRACTION
+#     Inspired by context-engineering-workflow's memory agent.
+#     Uses the LLM to extract structured facts from conversation.
+# ═══════════════════════════════════════════════════════════════════
+
+MEMORY_EXTRACTION_PROMPT = """Analyze this conversation and extract facts worth remembering for future sessions.
+
+Return ONLY valid JSON with these fields (omit empty ones):
+{
+  "user_name": "if mentioned",
+  "project_name": "if identifiable",
+  "tech_stack": ["list", "of", "technologies"],
+  "preferences": {"key": "value pairs of user preferences"},
+  "key_decisions": ["important architectural/design decisions made"],
+  "current_goal": "what the user is trying to achieve",
+  "session_summary": "2-3 sentence summary of what happened"
+}
+
+Conversation:
+{conversation}
+
+JSON:"""
+
+
+async def extract_memory_updates_llm(
+    user_messages: List[str],
+    assistant_messages: List[str],
+    api_key: str = "",
+    nim_base: str = "",
+    model_id: str = "qwen/qwen2.5-7b-instruct",
+) -> Dict[str, Any]:
+    """Extract memory updates using an LLM for structured fact extraction.
+
+    Falls back to heuristic extraction if LLM call fails.
+    Pattern from context-engineering-workflow's memory agent + Zep's
+    approach of storing structured facts rather than raw text.
+    """
+    import httpx
+
+    # Always start with heuristic extraction as baseline
+    updates = extract_memory_updates(user_messages, assistant_messages)
+
+    if not api_key or not nim_base:
+        return updates
+
+    # Build conversation snippet (cap to prevent huge prompts)
+    conv_parts = []
+    for i, msg in enumerate(user_messages[-5:]):
+        conv_parts.append(f"USER: {msg[:500]}")
+        if i < len(assistant_messages):
+            conv_parts.append(f"ASSISTANT: {assistant_messages[i][:500]}")
+    conversation_text = "\n".join(conv_parts)
+
+    if len(conversation_text) < 100:
+        return updates  # Too short to bother with LLM extraction
+
+    prompt = MEMORY_EXTRACTION_PROMPT.format(conversation=conversation_text)
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{nim_base}/chat/completions",
+                json={
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 512,
+                    "temperature": 0.1,
+                },
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"]
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                llm_facts = json.loads(json_match.group())
+                # Merge LLM facts into heuristic updates (LLM takes priority)
+                if llm_facts.get("tech_stack"):
+                    updates["tech_stack"] = llm_facts["tech_stack"][:8]
+                if llm_facts.get("user_name"):
+                    updates["user_name"] = llm_facts["user_name"]
+                if llm_facts.get("project_name"):
+                    updates["project_name"] = llm_facts["project_name"]
+                if llm_facts.get("preferences"):
+                    updates["preferences"] = llm_facts["preferences"]
+                if llm_facts.get("key_decisions"):
+                    updates["key_decisions"] = llm_facts["key_decisions"][:5]
+                if llm_facts.get("current_goal"):
+                    updates["current_goal"] = llm_facts["current_goal"]
+                if llm_facts.get("session_summary"):
+                    updates["_session_summary"] = llm_facts["session_summary"]
+                logger.info("LLM memory extraction succeeded: %d facts", len(llm_facts))
+    except Exception as e:
+        logger.debug("LLM memory extraction failed (using heuristics): %s", e)
 
     return updates
 
@@ -487,8 +854,7 @@ def compress_messages(
     """Compress older messages, keep recent ones intact.
 
     Returns (compressed_messages, summary_text_for_llm_call).
-    The caller should use the LLM to generate the actual summary
-    and prepend it as a system message.
+    The summary_text is a prompt that can be appended to the system message.
     """
     if len(messages) <= keep_recent + 1:
         return messages, None
@@ -507,6 +873,50 @@ def compress_messages(
     conversation_text = "\n".join(conv_parts)
 
     summary_prompt = COMPRESSION_PROMPT.format(conversation=conversation_text)
+
+    return recent, summary_prompt
+
+
+async def compress_messages_llm(
+    messages: List[Dict[str, str]],
+    api_key: str = "",
+    nim_base: str = "",
+    model_id: str = "qwen/qwen2.5-7b-instruct",
+    keep_recent: int = 4,
+) -> tuple[List[Dict[str, str]], Optional[str]]:
+    """Compress older messages via LLM summarization.
+
+    Actually calls the model to generate a summary of old messages,
+    then returns (recent_messages, generated_summary).
+    Falls back to prompt-based compression if LLM call fails.
+    """
+    import httpx
+
+    recent, summary_prompt = compress_messages(messages, keep_recent)
+    if not summary_prompt:
+        return recent, None
+
+    if not api_key or not nim_base:
+        return recent, summary_prompt  # fallback: raw prompt
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                f"{nim_base}/chat/completions",
+                json={
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": summary_prompt}],
+                    "max_tokens": 500,
+                    "temperature": 0.2,
+                },
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if r.status_code == 200:
+            summary = r.json()["choices"][0]["message"]["content"]
+            logger.info("Context compression: %d old msgs → %d char summary", len(messages) - keep_recent, len(summary))
+            return recent, summary
+    except Exception as e:
+        logger.debug("LLM compression failed (using prompt fallback): %s", e)
 
     return recent, summary_prompt
 

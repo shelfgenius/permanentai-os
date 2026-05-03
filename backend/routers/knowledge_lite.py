@@ -91,7 +91,9 @@ async def upload_documents(
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
 
         # Save file locally
-        file_path = UPLOAD_DIR / f"{doc_id}.{ext}"
+        file_path = (UPLOAD_DIR / f"{doc_id}.{ext}").resolve()
+        if not file_path.is_relative_to(UPLOAD_DIR.resolve()):
+            raise HTTPException(400, "Invalid filename")
         file_path.write_bytes(content)
 
         # Extract text
@@ -169,8 +171,8 @@ async def delete_document(doc_id: str):
 
     # Delete file
     ext = doc["file_type"] or "txt"
-    file_path = UPLOAD_DIR / f"{doc_id}.{ext}"
-    if file_path.exists():
+    file_path = (UPLOAD_DIR / f"{doc_id}.{ext}").resolve()
+    if file_path.is_relative_to(UPLOAD_DIR.resolve()) and file_path.exists():
         file_path.unlink()
 
     conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))

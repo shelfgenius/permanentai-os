@@ -21,7 +21,7 @@ from typing import List, Optional
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from services.echo_engine import (
     build_system_prompt,
@@ -36,6 +36,8 @@ from services.echo_engine import (
     sanitize_input,
     save_session,
     load_session,
+    get_user_lock,
+    _default_memory,
     MODELS,
     ECHO_SKILL_PROMPTS,
 )
@@ -68,6 +70,20 @@ class EchoChatRequest(BaseModel):
     session_id: Optional[str] = None
     user_id: str = "default"
 
+    @field_validator("current_content")
+    @classmethod
+    def limit_content_size(cls, v):
+        if v and len(v) > 50_000:
+            raise ValueError("current_content exceeds 50 KB limit")
+        return v
+
+    @field_validator("messages")
+    @classmethod
+    def limit_message_count(cls, v):
+        if len(v) > 100:
+            return v[-50:]
+        return v
+
 
 # ── Main chat endpoint ───────────────────────────────────────────
 
@@ -78,12 +94,21 @@ async def echo_chat(req: EchoChatRequest):
     if not api_key:
         raise HTTPException(503, "No NVIDIA API key configured")
 
+    trace_id = str(uuid.uuid4())[:8]
+
     # 1. Sanitize input
     user_msgs = [m for m in req.messages if m.role == "user"]
     latest_user = user_msgs[-1].content if user_msgs else ""
     cleaned_text, injection_warnings = sanitize_input(latest_user)
     if injection_warnings:
-        logger.warning("Echo: injection flags on input: %s", injection_warnings)
+        logger.warning("Echo[%s]: injection flags: %s", trace_id, injection_warnings)
+        # Block critical injection attempts
+        blocked = [w for w in injection_warnings if w.startswith("blocked:")]
+        if blocked:
+            raise HTTPException(400, f"Request blocked by safety filter: {blocked}")
+        # Use cleaned text for non-critical warnings
+        if user_msgs:
+            req.messages[-1] = ChatMessage(role="user", content=cleaned_text)
 
     # 2. Smart model routing
     if req.model and req.model != "auto":
@@ -96,8 +121,8 @@ async def echo_chat(req: EchoChatRequest):
 
     complexity = classify_task_complexity(latest_user, len(req.messages))
     logger.info(
-        "Echo: model=%s complexity=%s skill=%s mode=%s msgs=%d",
-        model_info["label"], complexity, req.skill, req.mode, len(req.messages),
+        "Echo[%s]: model=%s complexity=%s skill=%s mode=%s user=%s msgs=%d",
+        trace_id, model_info["label"], complexity, req.skill, req.mode, req.user_id, len(req.messages),
     )
 
     # 3. Build memory context
@@ -152,6 +177,8 @@ async def echo_chat(req: EchoChatRequest):
         if req.stream:
             async def stream_gen():
                 full_response = []
+                usage = {}
+                yield f'data: {{"trace_id": "{trace_id}", "model": "{model_info["label"]}"}}'  + "\n\n"
                 async with httpx.AsyncClient(timeout=180) as client:
                     async with client.stream(
                         "POST",
@@ -176,6 +203,8 @@ async def echo_chat(req: EchoChatRequest):
                                     delta = chunk_data.get("choices", [{}])[0].get("delta", {})
                                     if "content" in delta and delta["content"]:
                                         full_response.append(delta["content"])
+                                    if chunk_data.get("usage"):
+                                        usage = chunk_data["usage"]
                                 except Exception:
                                     pass
 
@@ -183,12 +212,13 @@ async def echo_chat(req: EchoChatRequest):
                 try:
                     assistant_text = "".join(full_response)
                     if assistant_text and len(assistant_text) > 50:
-                        user_texts = [m.content for m in req.messages if m.role == "user"]
-                        updates = extract_memory_updates(user_texts, [assistant_text])
-                        if updates:
-                            mem = load_user_memory(req.user_id)
-                            mem["profile"].update(updates)
-                            save_user_memory(mem, req.user_id)
+                        async with get_user_lock(req.user_id):
+                            user_texts = [m.content for m in req.messages if m.role == "user"]
+                            updates = extract_memory_updates(user_texts, [assistant_text])
+                            if updates:
+                                mem = load_user_memory(req.user_id)
+                                mem["profile"].update(updates)
+                                save_user_memory(mem, req.user_id)
 
                         # Save session
                         if req.session_id:
@@ -199,8 +229,15 @@ async def echo_chat(req: EchoChatRequest):
                                 "skill": req.skill,
                                 "complexity": complexity,
                             })
+                    if usage:
+                        logger.info(
+                            "Echo[%s]: tokens prompt=%d completion=%d",
+                            trace_id,
+                            usage.get("prompt_tokens", 0),
+                            usage.get("completion_tokens", 0),
+                        )
                 except Exception as e:
-                    logger.debug("Echo memory update failed: %s", e)
+                    logger.debug("Echo[%s]: memory update failed: %s", trace_id, e)
 
             return StreamingResponse(stream_gen(), media_type="text/event-stream")
         else:
@@ -261,24 +298,19 @@ async def echo_memory(user_id: str = "default"):
 @router.delete("/memory/{user_id}")
 async def echo_clear_memory(user_id: str = "default"):
     """Clear user memory."""
-    save_user_memory({
-        "user_id": user_id,
-        "profile": {},
-        "preferences": {},
-        "project_context": {},
-        "session_summaries": [],
-        "created_at": time.time(),
-    }, user_id)
+    async with get_user_lock(user_id):
+        save_user_memory(_default_memory(user_id), user_id)
     return {"status": "cleared"}
 
 
 @router.post("/memory/{user_id}/note")
 async def echo_add_memory(user_id: str, note: dict):
     """Manually add a memory note."""
-    mem = load_user_memory(user_id)
     key = note.get("key", "")
     value = note.get("value", "")
     if key and value:
-        mem["profile"][key] = value
-        save_user_memory(mem, user_id)
+        async with get_user_lock(user_id):
+            mem = load_user_memory(user_id)
+            mem["profile"][key] = value
+            save_user_memory(mem, user_id)
     return {"status": "saved", "key": key}

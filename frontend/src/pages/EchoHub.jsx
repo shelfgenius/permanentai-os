@@ -33,13 +33,7 @@ const SKILLS = [
   { id: 'optimize',  label: 'Optimize',         icon: Zap },
 ];
 
-const MCP_SERVERS = [
-  { id: 'github',   label: 'GitHub',   status: 'connected',    icon: '⚡' },
-  { id: 'slack',    label: 'Slack',    status: 'disconnected', icon: '💬' },
-  { id: 'figma',    label: 'Figma',    status: 'disconnected', icon: '🎨' },
-  { id: 'jira',     label: 'Jira',     status: 'disconnected', icon: '📋' },
-  { id: 'postgres', label: 'Postgres', status: 'connected',    icon: '🗄️' },
-];
+const MCP_SERVERS = [];
 
 /* ═══════════════════════════════════════════════════════════
    DEFAULT FILES (starter project)
@@ -267,7 +261,19 @@ function CascadePanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, plan]);
 
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   const streamResponse = useCallback(async (userText) => {
+    if (!backendUrl) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Error: Backend URL is not configured. Check your settings.',
+        ts: Date.now(),
+      }]);
+      return;
+    }
+
     const userMsg = { role: 'user', content: userText, ts: Date.now() };
     const assistantMsg = { role: 'assistant', content: '', ts: Date.now(), sections: [] };
     setMessages(prev => [...prev, userMsg, assistantMsg]);
@@ -284,7 +290,7 @@ function CascadePanel({
 
     // Detect if a skill is active from the user text (slash command)
     let activeSkill = null;
-    const skillMatch = userText.match(/^\/(\w+)\s/);
+    const skillMatch = userText.match(/^\/([\w]+)\s/);
     if (skillMatch) {
       const cmd = skillMatch[1].toLowerCase();
       if (SKILLS.find(s => s.id === cmd)) activeSkill = cmd;
@@ -293,12 +299,13 @@ function CascadePanel({
     try {
       const controller = new AbortController();
       abortRef.current = controller;
+      const currentMessages = messagesRef.current;
       const res = await fetch(`${backendUrl}/echo/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            ...messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
+            ...currentMessages.slice(-10).map(m => ({ role: m.role, content: m.content })),
             { role: 'user', content: userText },
           ],
           max_tokens: reasoning === 'deep' ? 8192 : 4096,
@@ -396,7 +403,7 @@ function CascadePanel({
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [mode, currentFile, currentContent, backendUrl, messages, reasoning, onCodeEdit, setMessages, setIsStreaming]);
+  }, [mode, currentFile, currentContent, backendUrl, reasoning, onCodeEdit, setMessages, setIsStreaming, setPlan, model]);
 
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
@@ -788,7 +795,7 @@ function Codemap({ files, onClose }) {
 ═══════════════════════════════════════════════════════════ */
 function StatusBar({ mode, model, mcpOpen, setMcpOpen, isStreaming }) {
   const activeModel = MODELS.find(m => m.id === model) || MODELS[0];
-  const connectedMcp = MCP_SERVERS.filter(s => s.status === 'connected').length;
+  const connectedMcp = 0;
 
   return (
     <div className="echo-statusbar" style={{
@@ -855,37 +862,11 @@ function McpPanel({ onClose }) {
           <X size={13} />
         </button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {MCP_SERVERS.map(s => (
-          <div key={s.id} style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 10px', borderRadius: 8,
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}>
-            <span style={{ fontSize: 14 }}>{s.icon}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>{s.label}</div>
-              <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase',
-                color: s.status === 'connected' ? '#00cc66' : 'rgba(255,255,255,0.4)' }}>
-                {s.status}
-              </div>
-            </div>
-            <div style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: s.status === 'connected' ? '#00cc66' : 'rgba(255,255,255,0.2)',
-            }} />
-          </div>
-        ))}
+      <div style={{ padding: '12px 0', textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 11, lineHeight: 1.5 }}>
+        No MCP servers configured.
+        <br />
+        Server integrations coming soon.
       </div>
-      <button style={{
-        marginTop: 10, width: '100%', padding: '8px 10px', borderRadius: 8,
-        background: 'rgba(26,115,232,0.1)', color: '#4c9fff',
-        border: '1px solid rgba(26,115,232,0.25)', cursor: 'pointer',
-        fontSize: 11, fontFamily: MONO, letterSpacing: '0.1em', textTransform: 'uppercase',
-      }}>
-        + Add Server
-      </button>
     </motion.div>
   );
 }

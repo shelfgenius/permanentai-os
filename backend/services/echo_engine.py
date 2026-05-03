@@ -16,6 +16,7 @@ Features:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -34,6 +35,17 @@ _SESSIONS_DIR = _DATA_DIR / "sessions"
 
 for d in [_MEMORY_DIR, _SESSIONS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# ── Memory concurrency locks ─────────────────────────────────────
+_user_locks: Dict[str, asyncio.Lock] = {}
+MAX_SESSION_SUMMARIES = 20
+MEMORY_SCHEMA_VERSION = 2
+
+def get_user_lock(user_id: str) -> asyncio.Lock:
+    """Get or create an asyncio lock per user_id."""
+    if user_id not in _user_locks:
+        _user_locks[user_id] = asyncio.Lock()
+    return _user_locks[user_id]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -214,51 +226,83 @@ def _user_id_hash(user_id: str) -> str:
     return hashlib.md5(user_id.encode()).hexdigest()[:12]
 
 
+def _default_memory(user_id: str) -> Dict[str, Any]:
+    return {
+        "schema_version": MEMORY_SCHEMA_VERSION,
+        "user_id": user_id,
+        "profile": {},
+        "preferences": {},
+        "project_context": {},
+        "session_summaries": [],
+        "created_at": time.time(),
+    }
+
+
+def _migrate_memory(mem: Dict[str, Any]) -> Dict[str, Any]:
+    """Migrate memory to current schema version."""
+    version = mem.get("schema_version", 1)
+    if version < 2:
+        mem.setdefault("preferences", {})
+        mem.setdefault("project_context", {})
+        mem.setdefault("session_summaries", [])
+        mem["schema_version"] = 2
+    return mem
+
+
 def load_user_memory(user_id: str = "default") -> Dict[str, Any]:
     """Load persistent memory for a user."""
     path = _MEMORY_DIR / f"{_user_id_hash(user_id)}.json"
     if path.exists():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            mem = json.loads(path.read_text(encoding="utf-8"))
+            if mem.get("schema_version", 1) < MEMORY_SCHEMA_VERSION:
+                mem = _migrate_memory(mem)
+            return mem
         except Exception:
             pass
-    return {
-        "user_id": user_id,
-        "profile": {},          # learned facts about user
-        "preferences": {},      # coding style, language, etc.
-        "project_context": {},  # what they're working on
-        "session_summaries": [],  # compressed past sessions
-        "created_at": time.time(),
-    }
+    return _default_memory(user_id)
 
 
 def save_user_memory(memory: Dict[str, Any], user_id: str = "default"):
-    """Save persistent memory."""
+    """Save persistent memory (atomic via temp file)."""
     path = _MEMORY_DIR / f"{_user_id_hash(user_id)}.json"
     memory["updated_at"] = time.time()
-    path.write_text(json.dumps(memory, indent=2, ensure_ascii=False), encoding="utf-8")
+    memory["schema_version"] = MEMORY_SCHEMA_VERSION
+    # Cap session summaries
+    summaries = memory.get("session_summaries", [])
+    if len(summaries) > MAX_SESSION_SUMMARIES:
+        memory["session_summaries"] = summaries[-MAX_SESSION_SUMMARIES:]
+    # Atomic write via temp file + rename
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(memory, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def build_memory_context(user_id: str = "default", max_chars: int = 2000) -> str:
-    """Build memory context string from stored memories."""
+    """Build memory context string with section-aware truncation."""
     mem = load_user_memory(user_id)
-    parts = []
 
-    if mem.get("profile"):
-        parts.append(f"User: {json.dumps(mem['profile'], ensure_ascii=False)}")
-
-    if mem.get("preferences"):
-        parts.append(f"Preferences: {json.dumps(mem['preferences'], ensure_ascii=False)}")
-
+    # Priority order: most valuable context first
+    sections: List[str] = []
     if mem.get("project_context"):
-        parts.append(f"Project: {json.dumps(mem['project_context'], ensure_ascii=False)}")
-
-    # Last 3 session summaries
+        sections.append(f"Project: {json.dumps(mem['project_context'], ensure_ascii=False)}")
+    if mem.get("preferences"):
+        sections.append(f"Preferences: {json.dumps(mem['preferences'], ensure_ascii=False)}")
+    if mem.get("profile"):
+        sections.append(f"User: {json.dumps(mem['profile'], ensure_ascii=False)}")
     for s in mem.get("session_summaries", [])[-3:]:
-        parts.append(f"[Session {s.get('date', '?')}] {s.get('summary', '')}")
+        sections.append(f"[Session {s.get('date', '?')}] {s.get('summary', '')}")
 
-    result = "\n".join(parts)
-    return result[:max_chars] if len(result) > max_chars else result
+    # Build respecting budget — skip whole sections instead of cutting mid-value
+    result, used = [], 0
+    for section in sections:
+        if used + len(section) + 1 <= max_chars:
+            result.append(section)
+            used += len(section) + 1
+        else:
+            break
+
+    return "\n".join(result)
 
 
 def extract_memory_updates(

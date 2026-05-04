@@ -10,10 +10,46 @@ export type SafetyStatus = 'verified' | 'acceptable' | 'invalid' | 'pending';
 export type ElementType = 
   | 'wall' | 'beam' | 'column' | 'slab' | 'foundation'
   | 'door' | 'window' | 'stair' | 'elevator'
-  | 'outlet' | 'switch' | 'light' | 'panel'
-  | 'toilet' | 'sink' | 'shower' | 'bathtub' | 'pipe'
-  | 'duct' | 'vent' | 'hvac_unit'
+  | 'outlet' | 'switch' | 'light' | 'panel' | 'light_fixture' | 'electrical_box'
+  | 'toilet' | 'sink' | 'shower' | 'bathtub' | 'pipe' | 'faucet' | 'shower_head' | 'washing_machine_outlet'
+  | 'duct' | 'vent' | 'hvac_unit' | 'radiator' | 'ac_unit' | 'boiler' | 'floor_heating' | 'heater'
   | 'furniture' | 'room_zone';
+
+export type MEPFixtureType =
+  // Electrical
+  | 'outlet' | 'switch' | 'light_ceiling' | 'light_wall' | 'light_spot'
+  | 'electrical_panel' | 'circuit_breaker'
+  // Plumbing  
+  | 'faucet_kitchen' | 'faucet_bathroom' | 'shower_head' | 'toilet_fixture'
+  | 'washing_machine_outlet' | 'drain' | 'water_heater'
+  // HVAC
+  | 'radiator' | 'ac_split' | 'ac_vent' | 'floor_heating_zone'
+  | 'boiler' | 'thermostat' | 'exhaust_fan';
+
+export type DrawingLineType = 'electrical' | 'plumbing_hot' | 'plumbing_cold' | 'plumbing_drain' | 'hvac_supply' | 'hvac_return';
+
+export interface MEPFixture {
+  id: string;
+  type: MEPFixtureType;
+  system: 'electrical' | 'plumbing' | 'hvac';
+  floor: number;
+  position: { x: number; y: number; z: number };
+  rotation: number;
+  wallId?: string;
+  roomId?: string;
+  properties: Record<string, number | string | boolean>;
+  label: string;
+}
+
+export interface DrawingLine {
+  id: string;
+  type: DrawingLineType;
+  system: 'electrical' | 'plumbing' | 'hvac';
+  floor: number;
+  points: [number, number, number][];
+  diameter?: number;
+  properties: Record<string, number | string | boolean>;
+}
 
 export type LayerCode = 
   | 'A-WALL' | 'A-DOOR' | 'A-WIND' | 'A-FURN' | 'A-ANNO'
@@ -76,7 +112,7 @@ export interface RoomZone {
   id: string;
   type: 'living' | 'kitchen' | 'bedroom' | 'bathroom' | 'hallway' 
        | 'staircase' | 'elevator_shaft' | 'corridor' | 'technical' 
-       | 'lobby' | 'office' | 'storage' | 'balcony';
+       | 'lobby' | 'entrance' | 'office' | 'storage' | 'balcony';
   area: number;
   floor: number;
   bounds: [number, number, number, number];

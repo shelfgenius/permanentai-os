@@ -14,6 +14,10 @@ import {
   type SystemMode,
   type ViewMode,
   type LayerCode,
+  type MEPFixture,
+  type DrawingLine,
+  type DrawingLineType,
+  type MEPFixtureType,
 } from '@construct/types';
 
 // ============= Agent Model Configuration =============
@@ -124,6 +128,13 @@ interface AppState {
   // Manual tools
   manualTool: string | null;
   
+  // MEP Fixtures & Drawing
+  mepFixtures: MEPFixture[];
+  drawingLines: DrawingLine[];
+  activeDrawingType: DrawingLineType | null;
+  activeFixtureType: MEPFixtureType | null;
+  drawingPoints: [number, number, number][];
+  
   // Viewport
   viewport: {
     camera: { x: number; y: number; z: number; target: [number, number, number] };
@@ -170,6 +181,18 @@ interface AppState {
   toggleFurniture: () => void;
   sendChatRefinement: (message: string) => Promise<void>;
   addChatMessage: (msg: ChatMsg) => void;
+  
+  // MEP fixture & drawing actions
+  addMEPFixture: (fixture: MEPFixture) => void;
+  removeMEPFixture: (id: string) => void;
+  updateMEPFixture: (id: string, updates: Partial<MEPFixture>) => void;
+  addDrawingLine: (line: DrawingLine) => void;
+  removeDrawingLine: (id: string) => void;
+  setActiveDrawingType: (type: DrawingLineType | null) => void;
+  setActiveFixtureType: (type: MEPFixtureType | null) => void;
+  addDrawingPoint: (point: [number, number, number]) => void;
+  finishDrawingLine: () => void;
+  clearDrawingPoints: () => void;
 }
 
 const ALL_LAYERS: LayerCode[] = [
@@ -325,56 +348,120 @@ const createRoomZones = (floors: number, unitsPerFloor: number, width: number, d
       }
     }
     
-    // Common areas
+    // Common areas — corridor on every floor
     zones.push({
       id: `Z-${f}-CORR`, type: 'corridor', area: width * 2,
       floor: f, bounds: [0, depth * 0.45, width, depth * 0.55],
       adjacency: [], daylightRatio: 0.02, ventilationRate: 20, elements: [],
     });
-    
-    if (f > 0) {
-      zones.push({
-        id: `Z-${f}-STAIR`, type: 'staircase', area: 12,
-        floor: f, bounds: [width * 0.85, depth * 0.85, width * 0.95, depth * 0.95],
-        adjacency: [], daylightRatio: 0.01, ventilationRate: 15, elements: [],
-      });
-      zones.push({
-        id: `Z-${f}-ELEV`, type: 'elevator_shaft', area: 6,
-        floor: f, bounds: [width * 0.75, depth * 0.85, width * 0.85, depth * 0.95],
-        adjacency: [], daylightRatio: 0, ventilationRate: 10, elements: [],
-      });
+
+    // Staircase & elevator on EVERY floor
+    zones.push({
+      id: `Z-${f}-STAIR`, type: 'staircase', area: 12,
+      floor: f, bounds: [width * 0.85, depth * 0.85, width * 0.95, depth * 0.95],
+      adjacency: [], daylightRatio: 0.01, ventilationRate: 15, elements: [],
+    });
+    zones.push({
+      id: `Z-${f}-ELEV`, type: 'elevator_shaft', area: 6,
+      floor: f, bounds: [width * 0.75, depth * 0.85, width * 0.85, depth * 0.95],
+      adjacency: [], daylightRatio: 0, ventilationRate: 10, elements: [],
+    });
+
+    // Ground floor: lobby (>4 stories) or entrance hallway (≤4 stories)
+    if (f === 0) {
+      if (floors > 4) {
+        // Large lobby for tall buildings
+        zones.push({
+          id: `Z-0-LOBBY`, type: 'lobby', area: width * depth * 0.15,
+          floor: 0, bounds: [0, 0, width * 0.4, depth * 0.45],
+          adjacency: [], daylightRatio: 0.08, ventilationRate: 30, elements: [],
+        });
+      } else {
+        // Compact entrance hallway for ≤4 story buildings
+        zones.push({
+          id: `Z-0-ENTRANCE`, type: 'entrance', area: width * 3,
+          floor: 0, bounds: [0, 0, width * 0.2, depth * 0.45],
+          adjacency: [], daylightRatio: 0.05, ventilationRate: 25, elements: [],
+        });
+      }
     }
   }
   
   return zones;
 };
 
-const createWallsDoorsWindows = (zones: RoomZone[], floors: number): BIMElement[] => {
+const createWallsDoorsWindows = (zones: RoomZone[], floors: number, bldgW = 30, bldgD = 20): BIMElement[] => {
   const els: BIMElement[] = [];
   const wallH = 2.8;
   const wallT = 0.2;
-  const base = (f: number) => ({ relationships: [] as string[], metadata: { createdBy: 'ai' as const, createdAt: new Date(), modifiedAt: new Date(), version: 1 }, visible: true, selected: false });
+  const EXT_TOL = 0.5; // tolerance for exterior wall detection
+  const base = () => ({ relationships: [] as string[], metadata: { createdBy: 'ai' as const, createdAt: new Date(), modifiedAt: new Date(), version: 1 }, visible: true, selected: false });
+
+  // Helper: is this edge on the building perimeter?
+  const isExteriorNorth = (z: number) => z < EXT_TOL;
+  const isExteriorSouth = (z: number) => z > bldgD - EXT_TOL;
+  const isExteriorWest  = (x: number) => x < EXT_TOL;
+  const isExteriorEast  = (x: number) => x > bldgW - EXT_TOL;
 
   for (let f = 0; f < floors; f++) {
     const fz = zones.filter(z => z.floor === f && z.type !== 'corridor');
     fz.forEach((zone) => {
       const [x1, z1, x2, z2] = zone.bounds;
       const w = x2 - x1; const d = z2 - z1;
-      // 4 walls per room (top, bottom, left, right)
-      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z1, width: w, height: wallH, depth: wallT, rotation: 0 }, material: 'Plaster on Brick 250mm', properties: { thickness: 250, uValue: 0.28 }, ...base(f) });
-      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z2 - wallT, width: w, height: wallH, depth: wallT, rotation: 0 }, material: 'Plaster on Brick 250mm', properties: { thickness: 250, uValue: 0.28 }, ...base(f) });
-      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z1, width: wallT, height: wallH, depth: d, rotation: 0 }, material: 'Plaster on Brick 250mm', properties: { thickness: 250, uValue: 0.28 }, ...base(f) });
-      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x2 - wallT, y: f * 3, z: z1, width: wallT, height: wallH, depth: d, rotation: 0 }, material: 'Plaster on Brick 250mm', properties: { thickness: 250, uValue: 0.28 }, ...base(f) });
-      // Door on longest wall (bottom wall, centered)
-      const doorX = x1 + w * 0.4 + Math.random() * w * 0.2;
-      els.push({ id: generateId(), type: 'door', layer: 'A-DOOR', floor: f, geometry: { x: doorX, y: f * 3, z: z2 - wallT, width: 0.9, height: 2.1, depth: wallT + 0.05, rotation: 0 }, material: zone.type === 'bathroom' ? 'PVC Door' : 'Solid Wood', properties: { fireRating: 'EI 30', handle: 'lever' }, ...base(f) });
-      // Windows on exterior-facing walls (top wall for living/bedroom)
-      if (zone.type === 'living' || zone.type === 'bedroom' || zone.type === 'kitchen') {
+      const matExt = 'Insulated Brick 300mm';
+      const matInt = 'Plaster on Brick 150mm';
+
+      // North wall (z = z1)
+      const northExt = isExteriorNorth(z1);
+      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z1, width: w, height: wallH, depth: wallT, rotation: 0 }, material: northExt ? matExt : matInt, properties: { thickness: northExt ? 300 : 150, uValue: northExt ? 0.22 : 0.5, exterior: northExt }, ...base() });
+      // South wall (z = z2)
+      const southExt = isExteriorSouth(z2);
+      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z2 - wallT, width: w, height: wallH, depth: wallT, rotation: 0 }, material: southExt ? matExt : matInt, properties: { thickness: southExt ? 300 : 150, uValue: southExt ? 0.22 : 0.5, exterior: southExt }, ...base() });
+      // West wall (x = x1)
+      const westExt = isExteriorWest(x1);
+      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x1, y: f * 3, z: z1, width: wallT, height: wallH, depth: d, rotation: 0 }, material: westExt ? matExt : matInt, properties: { thickness: westExt ? 300 : 150, uValue: westExt ? 0.22 : 0.5, exterior: westExt }, ...base() });
+      // East wall (x = x2)
+      const eastExt = isExteriorEast(x2);
+      els.push({ id: generateId(), type: 'wall', layer: 'A-WALL', floor: f, geometry: { x: x2 - wallT, y: f * 3, z: z1, width: wallT, height: wallH, depth: d, rotation: 0 }, material: eastExt ? matExt : matInt, properties: { thickness: eastExt ? 300 : 150, uValue: eastExt ? 0.22 : 0.5, exterior: eastExt }, ...base() });
+
+      // Door on interior wall (south wall, centered)
+      if (zone.type !== 'lobby' && zone.type !== 'entrance') {
+        const doorX = x1 + w * 0.4 + Math.random() * w * 0.2;
+        els.push({ id: generateId(), type: 'door', layer: 'A-DOOR', floor: f, geometry: { x: doorX, y: f * 3, z: z2 - wallT, width: 0.9, height: 2.1, depth: wallT + 0.05, rotation: 0 }, material: zone.type === 'bathroom' ? 'PVC Door' : 'Solid Wood', properties: { fireRating: 'EI 30', handle: 'lever' }, ...base() });
+      }
+
+      // WINDOWS — ONLY on exterior walls, only for habitable rooms
+      if (zone.type === 'living' || zone.type === 'bedroom' || zone.type === 'kitchen' || zone.type === 'office') {
         const winCount = zone.type === 'living' ? 2 : 1;
-        for (let wi = 0; wi < winCount; wi++) {
-          const winX = x1 + (w / (winCount + 1)) * (wi + 1) - 0.6;
-          els.push({ id: generateId(), type: 'window', layer: 'A-WIND', floor: f, geometry: { x: winX, y: f * 3 + 0.9, z: z1, width: 1.2, height: 1.4, depth: wallT + 0.05, rotation: 0 }, material: 'Double-Glazed Aluminium', properties: { uValue: 1.4, glazing: 'Low-E', openingType: 'tilt-turn' }, ...base(f) });
+        // Check which walls are exterior and place windows there
+        if (northExt) {
+          for (let wi = 0; wi < winCount; wi++) {
+            const winX = x1 + (w / (winCount + 1)) * (wi + 1) - 0.6;
+            els.push({ id: generateId(), type: 'window', layer: 'A-WIND', floor: f, geometry: { x: winX, y: f * 3 + 0.9, z: z1, width: 1.2, height: 1.4, depth: wallT + 0.05, rotation: 0 }, material: 'Double-Glazed Aluminium', properties: { uValue: 1.4, glazing: 'Low-E', openingType: 'tilt-turn' }, ...base() });
+          }
+        } else if (southExt) {
+          for (let wi = 0; wi < winCount; wi++) {
+            const winX = x1 + (w / (winCount + 1)) * (wi + 1) - 0.6;
+            els.push({ id: generateId(), type: 'window', layer: 'A-WIND', floor: f, geometry: { x: winX, y: f * 3 + 0.9, z: z2 - wallT, width: 1.2, height: 1.4, depth: wallT + 0.05, rotation: 0 }, material: 'Double-Glazed Aluminium', properties: { uValue: 1.4, glazing: 'Low-E', openingType: 'tilt-turn' }, ...base() });
+          }
+        } else if (westExt) {
+          for (let wi = 0; wi < Math.min(winCount, 1); wi++) {
+            const winZ = z1 + (d / 2) - 0.6;
+            els.push({ id: generateId(), type: 'window', layer: 'A-WIND', floor: f, geometry: { x: x1, y: f * 3 + 0.9, z: winZ, width: wallT + 0.05, height: 1.4, depth: 1.2, rotation: 0 }, material: 'Double-Glazed Aluminium', properties: { uValue: 1.4, glazing: 'Low-E', openingType: 'tilt-turn' }, ...base() });
+          }
+        } else if (eastExt) {
+          for (let wi = 0; wi < Math.min(winCount, 1); wi++) {
+            const winZ = z1 + (d / 2) - 0.6;
+            els.push({ id: generateId(), type: 'window', layer: 'A-WIND', floor: f, geometry: { x: x2 - wallT, y: f * 3 + 0.9, z: winZ, width: wallT + 0.05, height: 1.4, depth: 1.2, rotation: 0 }, material: 'Double-Glazed Aluminium', properties: { uValue: 1.4, glazing: 'Low-E', openingType: 'tilt-turn' }, ...base() });
+          }
         }
+        // No windows if no exterior wall (interior room)
+      }
+
+      // Lobby entrance door (ground floor only)
+      if ((zone.type === 'lobby' || zone.type === 'entrance') && f === 0) {
+        const entX = x1 + w * 0.35;
+        els.push({ id: generateId(), type: 'door', layer: 'A-DOOR', floor: 0, geometry: { x: entX, y: 0, z: z1, width: 1.8, height: 2.4, depth: wallT + 0.05, rotation: 0 }, material: 'Aluminium Glass Entrance', properties: { fireRating: 'EI 60', handle: 'push-bar', entrance: true }, ...base() });
       }
     });
   }
@@ -424,6 +511,93 @@ const createMEPSystems = (floors: number, zones: RoomZone[]): MEPSystem[] => {
   }
   
   return systems;
+};
+
+const createMEPFixtures = (zones: RoomZone[]): MEPFixture[] => {
+  const fixtures: MEPFixture[] = [];
+  const mk = (type: MEPFixtureType, system: MEPFixture['system'], floor: number, pos: { x: number; y: number; z: number }, label: string, roomId: string, props: Record<string, any> = {}): MEPFixture => ({
+    id: generateId(), type, system, floor, position: pos, rotation: 0, roomId, properties: props, label,
+  });
+
+  zones.forEach(zone => {
+    const [x1, z1, x2, z2] = zone.bounds;
+    const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+    const f = zone.floor;
+    const yFloor = f * 3;
+
+    // === ELECTRICAL ===
+    // Outlets on walls (0.3m above floor)
+    if (zone.type === 'living') {
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 0.05, y: yFloor + 0.3, z: z1 + 1 }, 'Outlet', zone.id, { amps: 16, voltage: 230 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x2 - 0.05, y: yFloor + 0.3, z: z1 + 1 }, 'Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 0.05, y: yFloor + 0.3, z: z2 - 1 }, 'Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x2 - 0.05, y: yFloor + 0.3, z: z2 - 1 }, 'Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('switch', 'electrical', f, { x: x1 + 0.05, y: yFloor + 1.2, z: z2 - 0.3 }, 'Switch', zone.id));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Ceiling Light', zone.id, { watts: 60, type: 'LED' }));
+    }
+    if (zone.type === 'bedroom') {
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 0.05, y: yFloor + 0.3, z: cz }, 'Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x2 - 0.05, y: yFloor + 0.3, z: cz }, 'Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('switch', 'electrical', f, { x: x1 + 0.05, y: yFloor + 1.2, z: z2 - 0.3 }, 'Switch', zone.id));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Ceiling Light', zone.id, { watts: 40, type: 'LED' }));
+    }
+    if (zone.type === 'kitchen') {
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 0.5, y: yFloor + 1.1, z: z1 + 0.05 }, 'Counter Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 1.5, y: yFloor + 1.1, z: z1 + 0.05 }, 'Counter Outlet', zone.id, { amps: 16 }));
+      fixtures.push(mk('outlet', 'electrical', f, { x: x2 - 0.5, y: yFloor + 0.3, z: z2 - 0.05 }, 'Appliance Outlet', zone.id, { amps: 32, dedicated: true }));
+      fixtures.push(mk('switch', 'electrical', f, { x: x1 + 0.05, y: yFloor + 1.2, z: z2 - 0.3 }, 'Switch', zone.id));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Ceiling Light', zone.id, { watts: 80, type: 'LED' }));
+      fixtures.push(mk('light_spot', 'electrical', f, { x: x1 + 1, y: yFloor + 2.6, z: z1 + 0.5 }, 'Under-Cabinet Spot', zone.id, { watts: 10 }));
+    }
+    if (zone.type === 'bathroom') {
+      fixtures.push(mk('outlet', 'electrical', f, { x: x1 + 0.05, y: yFloor + 1.3, z: cz }, 'Shaver Outlet', zone.id, { amps: 10, ipRating: 'IP44' }));
+      fixtures.push(mk('switch', 'electrical', f, { x: x2 - 0.05, y: yFloor + 1.2, z: z2 - 0.3 }, 'Switch', zone.id));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Bathroom Light IP44', zone.id, { watts: 24, ipRating: 'IP44' }));
+      fixtures.push(mk('exhaust_fan', 'hvac', f, { x: cx, y: yFloor + 2.6, z: cz - 0.5 }, 'Exhaust Fan', zone.id, { cfm: 80 }));
+    }
+    if (zone.type === 'hallway' || zone.type === 'corridor') {
+      fixtures.push(mk('switch', 'electrical', f, { x: x1 + 0.05, y: yFloor + 1.2, z: cz }, 'Switch', zone.id));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Corridor Light', zone.id, { watts: 20 }));
+    }
+    if (zone.type === 'lobby' || zone.type === 'entrance') {
+      fixtures.push(mk('electrical_panel', 'electrical', f, { x: x2 - 0.1, y: yFloor + 1.4, z: z2 - 0.5 }, 'Main Panel', zone.id, { circuits: 24, amps: 63 }));
+      fixtures.push(mk('light_ceiling', 'electrical', f, { x: cx, y: yFloor + 2.7, z: cz }, 'Lobby Light', zone.id, { watts: 100, type: 'LED' }));
+    }
+
+    // === PLUMBING ===
+    if (zone.type === 'kitchen') {
+      fixtures.push(mk('faucet_kitchen', 'plumbing', f, { x: x1 + 1.2, y: yFloor + 0.9, z: z1 + 0.05 }, 'Kitchen Faucet', zone.id));
+      fixtures.push(mk('drain', 'plumbing', f, { x: x1 + 1.2, y: yFloor, z: z1 + 0.2 }, 'Kitchen Drain', zone.id, { diameter: 50 }));
+      fixtures.push(mk('washing_machine_outlet', 'plumbing', f, { x: x2 - 0.5, y: yFloor + 0.5, z: z2 - 0.1 }, 'Washing Machine', zone.id));
+    }
+    if (zone.type === 'bathroom') {
+      fixtures.push(mk('shower_head', 'plumbing', f, { x: x1 + 0.5, y: yFloor + 2.1, z: z1 + 0.5 }, 'Shower Head', zone.id));
+      fixtures.push(mk('faucet_bathroom', 'plumbing', f, { x: x1 + 0.05, y: yFloor + 0.85, z: cz + 0.3 }, 'Basin Faucet', zone.id));
+      fixtures.push(mk('toilet_fixture', 'plumbing', f, { x: x2 - 0.3, y: yFloor + 0.4, z: cz }, 'Toilet', zone.id));
+      fixtures.push(mk('drain', 'plumbing', f, { x: x1 + 0.5, y: yFloor, z: z1 + 0.5 }, 'Shower Drain', zone.id, { diameter: 75 }));
+    }
+
+    // === HVAC ===
+    if (zone.type === 'living' || zone.type === 'bedroom' || zone.type === 'office') {
+      fixtures.push(mk('radiator', 'hvac', f, { x: x1 + 0.05, y: yFloor + 0.3, z: z1 + 1.5 }, 'Radiator', zone.id, { btu: 8000, type: 'panel' }));
+      fixtures.push(mk('ac_split', 'hvac', f, { x: cx, y: yFloor + 2.4, z: z1 + 0.1 }, 'AC Split Unit', zone.id, { btu: 12000 }));
+      fixtures.push(mk('thermostat', 'hvac', f, { x: x2 - 0.05, y: yFloor + 1.4, z: cz }, 'Thermostat', zone.id));
+    }
+    if (zone.type === 'living') {
+      fixtures.push(mk('ac_vent', 'hvac', f, { x: cx - 1, y: yFloor + 2.7, z: cz }, 'Supply Vent', zone.id, { cfm: 150 }));
+      fixtures.push(mk('ac_vent', 'hvac', f, { x: cx + 1, y: yFloor + 2.7, z: cz }, 'Return Vent', zone.id, { cfm: 150, return: true }));
+    }
+  });
+
+  // Add boiler in technical room or ground floor
+  const techZone = zones.find(z => z.type === 'technical' && z.floor === 0) || zones.find(z => (z.type === 'lobby' || z.type === 'entrance') && z.floor === 0);
+  if (techZone) {
+    const [x1, z1, x2, z2] = techZone.bounds;
+    fixtures.push(mk('boiler', 'hvac', 0, { x: x2 - 0.4, y: 0.5, z: z2 - 0.4 }, 'Boiler', techZone.id, { kw: 24, type: 'condensing' }));
+    fixtures.push(mk('water_heater', 'plumbing', 0, { x: x2 - 0.4, y: 0.8, z: z2 - 1.2 }, 'Water Heater', techZone.id, { liters: 150 }));
+  }
+
+  return fixtures;
 };
 
 const createFurniture = (zones: RoomZone[]): FurnitureItem[] => {
@@ -477,6 +651,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   showFurniture: true,
   chatMessages: [],
   manualTool: null,
+  mepFixtures: [],
+  drawingLines: [],
+  activeDrawingType: null,
+  activeFixtureType: null,
+  drawingPoints: [],
   activeLayers: ALL_LAYERS,
   layerVisibility: { ...defaultLayerVisibility },
   viewport: {
@@ -560,6 +739,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   setManualTool: (tool) => set({ manualTool: tool }),
   toggleFurniture: () => set((state) => ({ showFurniture: !state.showFurniture })),
   addChatMessage: (msg) => set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+
+  // MEP fixture & drawing actions
+  addMEPFixture: (fixture) => set((state) => ({ mepFixtures: [...state.mepFixtures, fixture] })),
+  removeMEPFixture: (id) => set((state) => ({ mepFixtures: state.mepFixtures.filter(f => f.id !== id) })),
+  updateMEPFixture: (id, updates) => set((state) => ({ mepFixtures: state.mepFixtures.map(f => f.id === id ? { ...f, ...updates } : f) })),
+  addDrawingLine: (line) => set((state) => ({ drawingLines: [...state.drawingLines, line] })),
+  removeDrawingLine: (id) => set((state) => ({ drawingLines: state.drawingLines.filter(l => l.id !== id) })),
+  setActiveDrawingType: (type) => set({ activeDrawingType: type, drawingPoints: [] }),
+  setActiveFixtureType: (type) => set({ activeFixtureType: type }),
+  addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),
+  clearDrawingPoints: () => set({ drawingPoints: [] }),
+  finishDrawingLine: () => {
+    const state = get();
+    if (state.drawingPoints.length < 2 || !state.activeDrawingType) return;
+    const system = state.activeDrawingType.startsWith('electrical') ? 'electrical' as const
+      : state.activeDrawingType.startsWith('hvac') ? 'hvac' as const : 'plumbing' as const;
+    const line: DrawingLine = {
+      id: generateId(), type: state.activeDrawingType, system,
+      floor: state.activeFloor === -1 ? 0 : state.activeFloor,
+      points: [...state.drawingPoints],
+      diameter: system === 'plumbing' ? 25 : system === 'hvac' ? 200 : 16,
+      properties: {},
+    };
+    set({ drawingLines: [...state.drawingLines, line], drawingPoints: [] });
+  },
 
   sendChatRefinement: async (message) => {
     const addMsg = get().addChatMessage;
@@ -726,9 +930,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     const structuralElements = createStructuralGrid(numFloors, width, depth);
     const roomZones = createRoomZones(numFloors, unitsPerFloor, width, depth);
-    const archElements = createWallsDoorsWindows(roomZones, numFloors);
+    const archElements = createWallsDoorsWindows(roomZones, numFloors, width, depth);
     structuralElements.push(...archElements);
     const mepSystems = createMEPSystems(numFloors, roomZones);
+    const mepFixtures = createMEPFixtures(roomZones);
     
     const floors: FloorData[] = [];
     for (let f = 0; f < numFloors; f++) {
@@ -764,7 +969,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       elements: structuralElements,
       roomZones,
       mepSystems,
+      mepFixtures,
       furniture,
+      drawingLines: [],
       floors,
       activeDebates: [debate],
       isGenerating: false,

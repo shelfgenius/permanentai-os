@@ -1,4 +1,4 @@
-import { useAppStore } from '@construct/store/useAppStore';
+import { useAppStore, AGENT_MODELS } from '@construct/store/useAppStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@construct/components/ui/card';
 import { Badge } from '@construct/components/ui/badge';
 import { ScrollArea } from '@construct/components/ui/scroll-area';
@@ -90,6 +90,11 @@ export function AgentPanel() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-medium text-slate-200">{msg.agentName}</span>
+                            {AGENT_MODELS[msg.agentId] && (
+                              <Badge variant="outline" className="text-[9px] border-slate-600 text-slate-500">
+                                {AGENT_MODELS[msg.agentId].model} ({AGENT_MODELS[msg.agentId].provider})
+                              </Badge>
+                            )}
                             <Badge className={`text-[10px] px-1.5 py-0 ${getTypeColor(msg.type)}`}>
                               {getTypeIcon(msg.type)} <span className="ml-1">{msg.type}</span>
                             </Badge>

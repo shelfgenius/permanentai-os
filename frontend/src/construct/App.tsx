@@ -13,6 +13,8 @@ import { BlueprintPanel } from '@construct/components/BlueprintPanel';
 import { LayerManager } from '@construct/components/LayerManager';
 import { CalculationPanel } from '@construct/components/CalculationPanel';
 import { PropertyEditor } from '@construct/components/PropertyEditor';
+import { ChatPanel } from '@construct/components/ChatPanel';
+import { FurniturePanel } from '@construct/components/FurniturePanel';
 import { StatusBar } from '@construct/components/StatusBar';
 import { Toaster } from '@construct/components/ui/sonner';
 
@@ -29,6 +31,8 @@ function App() {
     switch (activePanel) {
       case 'viewport': return <Viewport3D />;
       case 'agents': return <AgentPanel />;
+      case 'chat': return <ChatPanel />;
+      case 'furniture': return <FurniturePanel />;
       case 'zoning': return <ZoningPanel />;
       case 'mep': return <MEPPanel />;
       case 'validation': return <ValidationPanel />;

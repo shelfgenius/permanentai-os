@@ -3,13 +3,15 @@ import {
   Box, Grid3X3, MessageSquare, Shield, FileText, 
   Layers, Zap, Settings,
   ChevronLeft, ChevronRight, PenTool,
-  BarChart3, AlertCircle
+  BarChart3, AlertCircle, Armchair, Send
 } from 'lucide-react';
 
 const panelItems = [
   { id: 'viewport', label: '3D Viewport', icon: Box },
   { id: 'zoning', label: 'Room Zoning', icon: Grid3X3 },
   { id: 'agents', label: 'AI Agents', icon: MessageSquare },
+  { id: 'chat', label: 'Refine (Chat)', icon: Send },
+  { id: 'furniture', label: 'Furniture', icon: Armchair },
   { id: 'validation', label: 'Validation', icon: Shield },
   { id: 'safety', label: 'Safety Layer', icon: AlertCircle },
   { id: 'mep', label: 'MEP Systems', icon: Zap },

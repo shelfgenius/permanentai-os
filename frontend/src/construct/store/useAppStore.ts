@@ -16,6 +16,65 @@ import {
   type LayerCode,
 } from '@construct/types';
 
+// ============= Agent Model Configuration =============
+export const AGENT_MODELS: Record<string, { name: string; model: string; provider: string; color: string; icon: string; reason: string }> = {
+  structural: { name: 'Structural Agent', model: 'Claude 3.5 Sonnet', provider: 'Anthropic', color: '#ef4444', icon: '🏗', reason: 'Precise engineering calculations & code compliance' },
+  architectural: { name: 'Architectural Agent', model: 'GPT-4o', provider: 'OpenAI', color: '#3b82f6', icon: '🏛', reason: 'Spatial reasoning & design aesthetics' },
+  mep: { name: 'MEP Agent', model: 'Gemini 1.5 Pro', provider: 'Google', color: '#22c55e', icon: '🔧', reason: 'Multi-system coordination & routing' },
+  fire: { name: 'Fire Safety Agent', model: 'Claude 3.5 Haiku', provider: 'Anthropic', color: '#f97316', icon: '🔥', reason: 'Fast code interpretation for life safety' },
+  energy: { name: 'Energy Agent', model: 'GPT-4-turbo', provider: 'OpenAI', color: '#8b5cf6', icon: '⚡', reason: 'Numerical analysis for thermal modeling' },
+  smart: { name: 'Smart Home Agent', model: 'Gemini 1.5 Flash', provider: 'Google', color: '#06b6d4', icon: '🏠', reason: 'Fast IoT protocol knowledge' },
+  moderator: { name: 'Debate Moderator', model: 'Claude 3 Opus', provider: 'Anthropic', color: '#eab308', icon: '⚖', reason: 'Superior multi-criteria reasoning' },
+};
+
+// ============= Furniture Templates =============
+const FURNITURE_TEMPLATES: Record<string, { type: string; width: number; depth: number; color: string; label: string }[]> = {
+  living: [
+    { type: 'sofa', width: 2.2, depth: 0.9, color: '#6366f1', label: 'Sofa' },
+    { type: 'coffee_table', width: 1.2, depth: 0.6, color: '#78716c', label: 'Coffee Table' },
+    { type: 'tv_unit', width: 1.8, depth: 0.4, color: '#57534e', label: 'TV Unit' },
+    { type: 'armchair', width: 0.9, depth: 0.8, color: '#7c3aed', label: 'Armchair' },
+  ],
+  bedroom: [
+    { type: 'bed', width: 1.6, depth: 2.0, color: '#2563eb', label: 'Bed' },
+    { type: 'nightstand', width: 0.5, depth: 0.4, color: '#78716c', label: 'Nightstand' },
+    { type: 'wardrobe', width: 1.8, depth: 0.6, color: '#57534e', label: 'Wardrobe' },
+  ],
+  kitchen: [
+    { type: 'dining_table', width: 1.4, depth: 0.8, color: '#92400e', label: 'Dining Table' },
+    { type: 'counter', width: 2.5, depth: 0.6, color: '#e7e5e4', label: 'Counter' },
+  ],
+  bathroom: [
+    { type: 'bathtub', width: 1.7, depth: 0.7, color: '#bae6fd', label: 'Bathtub' },
+    { type: 'toilet', width: 0.4, depth: 0.6, color: '#f5f5f4', label: 'WC' },
+    { type: 'sink', width: 0.6, depth: 0.45, color: '#f5f5f4', label: 'Sink' },
+  ],
+};
+
+export interface FurnitureItem {
+  id: string;
+  type: string;
+  roomId: string;
+  floor: number;
+  x: number;
+  z: number;
+  rotation: number;
+  width: number;
+  depth: number;
+  color: string;
+  label: string;
+}
+
+export interface ChatMsg {
+  id: string;
+  role: 'user' | 'agent';
+  agentId?: string;
+  agentName?: string;
+  model?: string;
+  content: string;
+  timestamp: Date;
+}
+
 interface AppState {
   // Project
   project: ProjectConfig | null;
@@ -54,6 +113,16 @@ interface AppState {
   // Layers
   activeLayers: LayerCode[];
   layerVisibility: Record<LayerCode, boolean>;
+  
+  // Furniture
+  furniture: FurnitureItem[];
+  showFurniture: boolean;
+  
+  // Chat
+  chatMessages: ChatMsg[];
+  
+  // Manual tools
+  manualTool: string | null;
   
   // Viewport
   viewport: {
@@ -94,6 +163,13 @@ interface AppState {
   setZoom: (zoom: number) => void;
   toggleSectionCut: () => void;
   addMEPSystem: (system: MEPSystem) => void;
+  addFurniture: (item: FurnitureItem) => void;
+  removeFurniture: (id: string) => void;
+  updateFurniture: (id: string, updates: Partial<FurnitureItem>) => void;
+  setManualTool: (tool: string | null) => void;
+  toggleFurniture: () => void;
+  sendChatRefinement: (message: string) => Promise<void>;
+  addChatMessage: (msg: ChatMsg) => void;
 }
 
 const ALL_LAYERS: LayerCode[] = [
@@ -119,7 +195,7 @@ const createStructuralGrid = (floors: number, width: number, depth: number): BIM
   const colsZ = Math.floor(depth / spacing) + 1;
   
   for (let f = 0; f < floors; f++) {
-    const zBase = f * 3;
+    const yBase = f * 3;
     
     // Columns
     for (let ix = 0; ix < colsX; ix++) {
@@ -129,7 +205,7 @@ const createStructuralGrid = (floors: number, width: number, depth: number): BIM
           type: 'column',
           layer: 'S-COLM',
           floor: f,
-          geometry: { x: ix * spacing, y: 0, z: zBase, width: 0.4, height: 3, depth: 0.4, rotation: 0 },
+          geometry: { x: ix * spacing, y: yBase, z: iz * spacing, width: 0.4, height: 3, depth: 0.4, rotation: 0 },
           material: 'C25/30 Concrete',
           properties: { 'section': '40x40cm', 'reinforcement': '4Ø16', 'loadCapacity': 1200 },
           relationships: [],
@@ -147,7 +223,7 @@ const createStructuralGrid = (floors: number, width: number, depth: number): BIM
           type: 'beam',
           layer: 'S-BEAM',
           floor: f,
-          geometry: { x: ix * spacing + spacing/2, y: 0, z: zBase + 2.8, width: spacing, height: 0.5, depth: 0.3, rotation: 0 },
+          geometry: { x: ix * spacing + spacing/2, y: yBase + 2.8, z: iz * spacing, width: spacing, height: 0.5, depth: 0.3, rotation: 0 },
           material: 'C25/30 Concrete',
           properties: { 'section': '30x50cm', 'reinforcement': '3Ø20', 'span': spacing },
           relationships: [],
@@ -165,7 +241,7 @@ const createStructuralGrid = (floors: number, width: number, depth: number): BIM
           type: 'beam',
           layer: 'S-BEAM',
           floor: f,
-          geometry: { x: ix * spacing, y: 0, z: zBase + 2.8, width: 0.3, height: 0.5, depth: spacing, rotation: 90 },
+          geometry: { x: ix * spacing, y: yBase + 2.8, z: iz * spacing + spacing/2, width: 0.3, height: 0.5, depth: spacing, rotation: 90 },
           material: 'C25/30 Concrete',
           properties: { 'section': '30x50cm', 'reinforcement': '3Ø20', 'span': spacing },
           relationships: [],
@@ -181,7 +257,7 @@ const createStructuralGrid = (floors: number, width: number, depth: number): BIM
       type: 'slab',
       layer: 'S-SLAB',
       floor: f,
-      geometry: { x: width/2, y: 0, z: zBase + 2.9, width, height: 0.2, depth, rotation: 0 },
+      geometry: { x: 0, y: yBase + 2.9, z: 0, width, height: 0.2, depth, rotation: 0 },
       material: 'C25/30 Concrete',
       properties: { 'thickness': 200, 'reinforcement': 'Ø10@150', 'spanX': spacing, 'spanZ': spacing },
       relationships: [],
@@ -207,41 +283,43 @@ const createRoomZones = (floors: number, unitsPerFloor: number, width: number, d
         const baseX = ux * unitWidth;
         const baseZ = uz * unitDepth;
         const unitId = `U-${f}-${unitIdx}`;
+        const mirror = (f + unitIdx) % 3 !== 0;
+        const rv = (min: number, max: number) => min + Math.random() * (max - min);
+        const lw = rv(0.55, 0.65), ld = rv(0.60, 0.75), kd = rv(0.35, 0.45), bw = rv(0.45, 0.55);
         
-        // Living room
-        zones.push({
-          id: `Z-${f}-${unitIdx}-L`, type: 'living', area: unitWidth * unitDepth * 0.4,
-          floor: f, bounds: [baseX, baseZ, baseX + unitWidth * 0.6, baseZ + unitDepth * 0.7],
-          unitId, adjacency: [], daylightRatio: 0.08, ventilationRate: 30, elements: [],
-        });
-        
-        // Kitchen
-        zones.push({
-          id: `Z-${f}-${unitIdx}-K`, type: 'kitchen', area: unitWidth * unitDepth * 0.15,
-          floor: f, bounds: [baseX + unitWidth * 0.6, baseZ, baseX + unitWidth, baseZ + unitDepth * 0.4],
-          unitId, adjacency: [], daylightRatio: 0.05, ventilationRate: 50, elements: [],
-        });
-        
-        // Bedroom
-        zones.push({
-          id: `Z-${f}-${unitIdx}-B1`, type: 'bedroom', area: unitWidth * unitDepth * 0.2,
-          floor: f, bounds: [baseX, baseZ + unitDepth * 0.7, baseX + unitWidth * 0.5, baseZ + unitDepth],
-          unitId, adjacency: [], daylightRatio: 0.1, ventilationRate: 25, elements: [],
-        });
-        
-        // Bathroom
-        zones.push({
-          id: `Z-${f}-${unitIdx}-BATH`, type: 'bathroom', area: unitWidth * unitDepth * 0.1,
-          floor: f, bounds: [baseX + unitWidth * 0.5, baseZ + unitDepth * 0.7, baseX + unitWidth * 0.8, baseZ + unitDepth],
-          unitId, adjacency: [], daylightRatio: 0.03, ventilationRate: 40, elements: [],
-        });
-        
-        // Hallway
-        zones.push({
-          id: `Z-${f}-${unitIdx}-H`, type: 'hallway', area: unitWidth * unitDepth * 0.15,
-          floor: f, bounds: [baseX + unitWidth * 0.8, baseZ + unitDepth * 0.4, baseX + unitWidth, baseZ + unitDepth],
-          unitId, adjacency: [], daylightRatio: 0.02, ventilationRate: 20, elements: [],
-        });
+        if (mirror) {
+          zones.push({ id: `Z-${f}-${unitIdx}-L`, type: 'living', area: unitWidth * unitDepth * rv(0.35, 0.45),
+            floor: f, bounds: [baseX + unitWidth * (1 - lw), baseZ, baseX + unitWidth, baseZ + unitDepth * ld],
+            unitId, adjacency: [], daylightRatio: rv(0.06, 0.10), ventilationRate: rv(25, 35), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-K`, type: 'kitchen', area: unitWidth * unitDepth * rv(0.12, 0.18),
+            floor: f, bounds: [baseX, baseZ, baseX + unitWidth * (1 - lw), baseZ + unitDepth * kd],
+            unitId, adjacency: [], daylightRatio: rv(0.04, 0.07), ventilationRate: rv(40, 60), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-B1`, type: 'bedroom', area: unitWidth * unitDepth * rv(0.18, 0.25),
+            floor: f, bounds: [baseX + unitWidth * (1 - bw), baseZ + unitDepth * ld, baseX + unitWidth, baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.08, 0.12), ventilationRate: rv(20, 30), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-BATH`, type: 'bathroom', area: unitWidth * unitDepth * rv(0.08, 0.12),
+            floor: f, bounds: [baseX + unitWidth * 0.2, baseZ + unitDepth * ld, baseX + unitWidth * (1 - bw), baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.02, 0.04), ventilationRate: rv(35, 45), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-H`, type: 'hallway', area: unitWidth * unitDepth * rv(0.10, 0.18),
+            floor: f, bounds: [baseX, baseZ + unitDepth * kd, baseX + unitWidth * 0.2, baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.01, 0.03), ventilationRate: rv(15, 25), elements: [] });
+        } else {
+          zones.push({ id: `Z-${f}-${unitIdx}-L`, type: 'living', area: unitWidth * unitDepth * rv(0.35, 0.45),
+            floor: f, bounds: [baseX, baseZ, baseX + unitWidth * lw, baseZ + unitDepth * ld],
+            unitId, adjacency: [], daylightRatio: rv(0.06, 0.10), ventilationRate: rv(25, 35), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-K`, type: 'kitchen', area: unitWidth * unitDepth * rv(0.12, 0.18),
+            floor: f, bounds: [baseX + unitWidth * lw, baseZ, baseX + unitWidth, baseZ + unitDepth * kd],
+            unitId, adjacency: [], daylightRatio: rv(0.04, 0.07), ventilationRate: rv(40, 60), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-B1`, type: 'bedroom', area: unitWidth * unitDepth * rv(0.18, 0.25),
+            floor: f, bounds: [baseX, baseZ + unitDepth * ld, baseX + unitWidth * bw, baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.08, 0.12), ventilationRate: rv(20, 30), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-BATH`, type: 'bathroom', area: unitWidth * unitDepth * rv(0.08, 0.12),
+            floor: f, bounds: [baseX + unitWidth * bw, baseZ + unitDepth * ld, baseX + unitWidth * 0.8, baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.02, 0.04), ventilationRate: rv(35, 45), elements: [] });
+          zones.push({ id: `Z-${f}-${unitIdx}-H`, type: 'hallway', area: unitWidth * unitDepth * rv(0.10, 0.18),
+            floor: f, bounds: [baseX + unitWidth * 0.8, baseZ + unitDepth * kd, baseX + unitWidth, baseZ + unitDepth],
+            unitId, adjacency: [], daylightRatio: rv(0.01, 0.03), ventilationRate: rv(15, 25), elements: [] });
+        }
         
         unitIdx++;
       }
@@ -316,6 +394,30 @@ const createMEPSystems = (floors: number, zones: RoomZone[]): MEPSystem[] => {
   return systems;
 };
 
+const createFurniture = (zones: RoomZone[]): FurnitureItem[] => {
+  const furniture: FurnitureItem[] = [];
+  zones.forEach((zone) => {
+    const templates = FURNITURE_TEMPLATES[zone.type];
+    if (!templates) return;
+    const [x1, z1, x2, z2] = zone.bounds;
+    const roomW = x2 - x1;
+    const roomD = z2 - z1;
+    templates.forEach((tmpl, i) => {
+      const margin = 0.3;
+      const availW = roomW - tmpl.width - margin * 2;
+      const availD = roomD - tmpl.depth - margin * 2;
+      if (availW < 0 || availD < 0) return;
+      let fx: number, fz: number, rot = 0;
+      if (i === 0) { fx = x1 + margin + availW * 0.5; fz = z1 + margin + availD * 0.2; }
+      else if (i === 1) { fx = x1 + margin + availW * 0.1; fz = z1 + margin + availD * 0.6; rot = 0; }
+      else { fx = x1 + margin + Math.random() * availW; fz = z1 + margin + Math.random() * availD; rot = Math.random() > 0.5 ? 90 : 0; }
+      furniture.push({ id: generateId(), type: tmpl.type, roomId: zone.id, floor: zone.floor,
+        x: fx, z: fz, rotation: rot, width: tmpl.width, depth: tmpl.depth, color: tmpl.color, label: tmpl.label });
+    });
+  });
+  return furniture;
+};
+
 export const useAppStore = create<AppState>((set, get) => ({
   project: null,
   floors: [],
@@ -339,6 +441,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   isValidating: false,
   isCalculating: false,
   blueprints: [],
+  furniture: [],
+  showFurniture: true,
+  chatMessages: [],
+  manualTool: null,
   activeLayers: ALL_LAYERS,
   layerVisibility: { ...defaultLayerVisibility },
   viewport: {
@@ -415,6 +521,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleSectionCut: () => set((state) => ({ viewport: { ...state.viewport, sectionCut: !state.viewport.sectionCut } })),
 
   addMEPSystem: (system) => set((state) => ({ mepSystems: [...state.mepSystems, system] })),
+
+  addFurniture: (item) => set((state) => ({ furniture: [...state.furniture, item] })),
+  removeFurniture: (id) => set((state) => ({ furniture: state.furniture.filter(f => f.id !== id) })),
+  updateFurniture: (id, updates) => set((state) => ({ furniture: state.furniture.map(f => f.id === id ? { ...f, ...updates } : f) })),
+  setManualTool: (tool) => set({ manualTool: tool }),
+  toggleFurniture: () => set((state) => ({ showFurniture: !state.showFurniture })),
+  addChatMessage: (msg) => set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+
+  sendChatRefinement: async (message) => {
+    const addMsg = get().addChatMessage;
+    addMsg({ id: generateId(), role: 'user', content: message, timestamp: new Date() });
+    await new Promise(r => setTimeout(r, 800));
+    const agents = ['structural', 'architectural', 'mep'];
+    for (const agentId of agents) {
+      const agent = AGENT_MODELS[agentId];
+      await new Promise(r => setTimeout(r, 600 + Math.random() * 800));
+      addMsg({ id: generateId(), role: 'agent', agentId, agentName: agent.name, model: agent.model,
+        content: `Analyzing refinement: "${message.slice(0, 60)}..." — Adjusting ${agentId} parameters. Changes applied to model.`,
+        timestamp: new Date() });
+      get().addAgentMessage({ id: generateId(), agentId, agentName: agent.name, agentIcon: agent.icon,
+        agentColor: agent.color, type: 'proposal', message: `Refinement applied: ${message.slice(0, 80)}`,
+        confidence: 0.85 + Math.random() * 0.1, impact: 'medium', timestamp: new Date(), resolved: true });
+    }
+  },
 
   generateAIBuilding: async (_description) => {
     set({ isGenerating: true, aiGenerationProgress: 0, aiGenerationStage: 'Parsing project requirements...', agentMessages: [] });
@@ -499,10 +629,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       timestamp: new Date(),
     };
 
+    const furniture = createFurniture(roomZones);
+
     set({
       elements: structuralElements,
       roomZones,
       mepSystems,
+      furniture,
       floors,
       activeDebates: [debate],
       isGenerating: false,

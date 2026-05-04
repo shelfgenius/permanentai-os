@@ -1,0 +1,441 @@
+﻿CONSTRUCTION AI 3D VIEWPORT
+System Architecture Â· Integration Blueprint Â· Safety Layer Design
+Romania + EU Standards  |  Dual Mode: Architectural & Engineering  |  100% Free & Open-Source Stack
+Version 1.0 â€” Architecture & Logic Document
+1. SYSTEM OVERVIEW & PHILOSOPHY
+This document defines the complete architecture for a professional-grade Construction AI 3D Viewport â€” a dual-mode (Architectural / Engineering) intelligent platform that integrates real structural physics, Romanian and EU building codes, multi-disciplinary AI expert agents, blueprint generation, and a dual-pass safety layer that cross-validates every calculation against independent solvers. All tooling is 100% free and open-source.
+1.1 Core Design Principles
+Zero-mistake policy â€” every calculation is run twice by independent engines and compared
+Code-first â€” Romanian P100, Eurocodes EC0â€“EC9, Romanian zoning law baked into every decision
+Multi-agent debate â€” specialist AI agents argue structural, architectural, MEP, fire, and energy positions
+Full BIM parity â€” IFC4 native, AutoCAD layer standards, ISO 5457 title blocks
+Geo-location aware â€” seismic zone, snow/wind loads, climate zone auto-resolved from coordinates
+Blueprint-ready output â€” generates DXF/PDF/IFC from both modes at any LOD (100â€“500)
+2. FREE & OPEN-SOURCE TOOL STACK
+Every tool below is free, open-source, and carries no commercial licensing cost. Each is assigned a role within the system architecture.
+2.1 3D Modelling & BIM Authoring
+FreeCAD + BIM Workbench
+Parametric 3D modelling, IFC authoring, walls/slabs/beams/columns with semantic data. Python-scriptable. github.com/FreeCAD/FreeCAD â€” LGPL
+Bonsai (BlenderBIM)
+Full IFC authoring inside Blender. Native IFC4 read/write. github.com/IfcOpenShell/IfcOpenShell â€” GPL
+Blender
+3D rendering, photo-realistic visualisation, animation. Python API. blender.org â€” GPL
+OpenSCAD
+Programmatic solid modelling for precise parametric components. openscad.org â€” GPL
+2.2 IFC / BIM Data Layer
+IfcOpenShell (Python)
+Read/write/modify IFC files, geometry kernel, clash detection, 2D drawing generation. Core BIM data bus of the entire system. LGPL
+IFC.js / web-ifc
+Browser-side IFC parsing and WebGL rendering via WASM. github.com/IFCjs/web-ifc â€” MIT
+xBIM Toolkit (.NET)
+IFC validation, COBie exchange, model checking for .NET integration layer. github.com/xBimTeam â€” CDDL
+BIMserver
+Open BIM server: versioned model storage, multi-user collaboration, IFC diff/merge. github.com/opensourceBIM/BIMserver â€” AGPL
+2.3 Structural Calculation Engines
+OpenSeesPy
+Primary structural FEA engine. Nonlinear static & dynamic (seismic) analysis, fiber sections, time-history. PEER/UC Berkeley â€” BSD. pip install openseespy
+AnaStruct
+Secondary 2D frame & truss FEM solver. Used as INDEPENDENT cross-check engine in the Safety Layer. pip install anastruct â€” MIT
+PyNite
+3D FEA for frames and trusses. Third validation pass for 3D cases. github.com/JWock82/PyNite â€” MIT
+PyFrame3DD
+NREL port of Frame3DD. Wind/seismic frame analysis. BSD.
+SciPy / NumPy
+Matrix stiffness method, eigenvalue (modal) analysis, load combinations. scipy.org â€” BSD
+Eurocode Sections DB
+Open steel section database (IPE, HEA, HEB, UB, UC, CHS, RHS). github.com/robbievanleeuwen/section-properties â€” MIT
+2.4 Energy & Environment Simulation
+EnergyPlus
+DOE whole-building energy simulation. Heating/cooling loads, HVAC modelling. github.com/NREL/EnergyPlus â€” BSD
+OpenStudio SDK (Python)
+High-level API over EnergyPlus. Geometry, schedules, HVAC systems. pip install openstudio â€” BSD
+Ladybug Tools
+Solar radiation, daylight, wind-rose, UTCI comfort. Grasshopper + Python. github.com/ladybug-tools â€” GPL
+Radiance
+Validated daylight + electric lighting simulation. LBNL â€” custom open licence
+OpenFOAM
+CFD airflow and natural ventilation analysis. openfoam.org â€” GPL
+2.5 Drawing, Blueprint & Export
+ezdxf (Python)
+Generate AutoCAD-compatible DXF files with correct layer standards, line types, title blocks. pip install ezdxf â€” MIT
+ReportLab / WeasyPrint
+PDF blueprint generation from vector drawings. MIT/BSD
+Matplotlib
+Structural diagrams: BMD, SFD, deflection curves, load envelopes. BSD
+SVGwrite
+2D plan/section SVG output for web viewport. MIT
+Pillow
+Image compositing for rendered sheets. PIL licence
+2.6 Web Viewport & 3D Visualisation
+Three.js
+WebGL 3D scene: orbit, section cuts, layer toggling, material preview. MIT
+web-ifc-three
+IFC model loading directly into Three.js scene. MIT
+React + Vite
+Frontend shell: dual-mode UI, panel system, agent chat interface. MIT
+Potree / Cesium
+Point cloud and geospatial terrain context (site positioning). Apache 2
+OpenLayers / Leaflet
+Map base for geo-location, zoning overlay, site boundary. BSD/MIT
+2.7 AI Layer
+Claude API (Anthropic)
+Expert AI agents: structural, architectural, MEP, fire safety, energy, smart home. Powers the multi-agent debate engine.
+LangChain (Python)
+Agent orchestration, tool use, memory, RAG over standards database. MIT
+ChromaDB / FAISS
+Vector store for Romanian codes (P100, NP, GT, C, I series) and Eurocodes (EN 1990â€“1999). MIT/Apache 2
+Sentence-Transformers
+Embedding of building codes for semantic retrieval. Apache 2
+3. SYSTEM ARCHITECTURE â€” LAYERS & DATA FLOW
+3.1 Architecture Diagram (Logical)
+USER  â”€â”€â–º  [React Web UI / 3D Viewport]                â”‚         [Mode Selector]  â—„â”€â”€â”€ Geo-Location Engine (lat/lng â†’ seismic zone, climate zone, zoning)          /          \ [ARCHITECTURAL      [ENGINEERING   MODE]               MODE]    â”‚                    â”‚    â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â–¼  [AI AGENT ORCHESTRATOR  (LangChain)]   â”œâ”€ Structural Agent     (OpenSeesPy + EC2/EC3 rules)   â”œâ”€ Architectural Agent  (IFC geometry + RLU/GUG zoning)   â”œâ”€ MEP Agent            (HVAC + Plumbing + Electrical codes)   â”œâ”€ Fire Safety Agent    (P118 + EN 13501)   â”œâ”€ Energy Agent         (EnergyPlus + Legea 372)   â”œâ”€ Smart Home Agent     (KNX/BACnet standards)   â””â”€ Debate Moderator     (resolves agent conflicts)           â”‚  [CALCULATION ENGINE]   â”œâ”€ PRIMARY:   OpenSeesPy  (FEA â€” structural)   â”œâ”€ ENERGY:    OpenStudio  (thermal + HVAC)   â””â”€ GEOMETRY:  IfcOpenShell (BIM data)           â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚  SAFETY LAYER   â”‚  â—„â”€â”€ INDEPENDENT cross-check (AnaStruct / PyNite / SciPy)  â”‚  (Dual-Pass     â”‚      Compares EVERY result â€” flags divergence > tolerance  â”‚   Verification) â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â–¼  [OUTPUT GENERATOR]   â”œâ”€ 3D Viewport (Three.js / web-ifc)   â”œâ”€ Blueprint DXF (ezdxf â€” AutoCAD layers)   â”œâ”€ Blueprint PDF (ReportLab â€” ISO 5457)   â”œâ”€ IFC4 export  (IfcOpenShell)   â””â”€ Calculation Report (PDF with full derivations)
+3.2 Data Flow â€” Step by Step
+Step 1 â€” Site Input
+User enters address or drops pin. OpenLayers resolves lat/lng. Geo engine queries: seismic zone (P100-1/2013), snow load zone (CR 1-1-3), wind pressure zone (CR 1-1-4), climate zone (energy), municipal zoning (POT/CUT/H limits).
+Step 2 â€” Mode Selection
+ARCHITECTURAL mode focuses on spatial layout, facades, circulation, furniture, finishes, lighting design, accessibility (HG 923/2010). ENGINEERING mode focuses on structural grid, load paths, FEA, section sizing, foundation design, MEP routing, energy compliance.
+Step 3 â€” Model Building
+User sketches or imports geometry. FreeCAD/Bonsai handles parametric BIM authoring. IfcOpenShell assigns IFC4 types: IfcWall, IfcBeam, IfcColumn, IfcSlab, IfcDoor, etc. AutoCAD layer standard applied automatically (A-WALL, S-BEAM, E-POWER, P-WATER...).
+Step 4 â€” AI Agent Debate
+Each specialist agent analyses the model and raises issues or proposals. E.g. Structural Agent flags column spacing > 6m without intermediate support. Architectural Agent objects to a load-bearing wall conflicting with open-plan intent. Debate Moderator arbitrates, proposes compromise (e.g. concealed steel beam). All agent reasoning is logged and shown in the UI.
+Step 5 â€” Calculation Pass 1 (Primary Engine)
+OpenSeesPy runs FEA: load combinations per SR EN 1990 (ULS/SLS), seismic analysis per EC8/P100 (response spectrum or time-history), beam/column/slab section design per EC2/EC3. OpenStudio runs energy simulation. Results stored in calculation database.
+Step 6 â€” Safety Layer (Pass 2)
+INDEPENDENT engines re-run identical problem: AnaStruct for 2D frames, PyNite for 3D frames, SciPy direct stiffness for simple checks. Results compared numerically. Divergence > 2% triggers a RED FLAG â€” user is warned, calculation is blocked until resolved.
+Step 7 â€” Code Compliance Check
+Automated rule engine checks every result against: P100 drift limits, EC2 reinforcement ratios, EC3 slenderness limits, energy U-values (Legea 372), fire resistance ratings (P118), accessibility (HG 923), zoning POT/CUT/height limits. Pass/Fail shown per item.
+Step 8 â€” Output Generation
+Blueprint DXF generated with ezdxf (correct AutoCAD layers, scales, title block). PDF generated with ReportLab (ISO A0â€“A4, SR ISO 5457 title block). IFC4 exported for use in Revit, Archicad, BIMserver. Calculation report PDF with full derivations, assumptions, code references.
+4. DUAL MODE â€” ARCHITECTURAL & ENGINEERING
+4.1 Architectural Mode
+Architectural mode is the design-intent layer. It governs spatial quality, aesthetics, programme, and regulatory compliance from a planning/zoning perspective.
+Active Tools in Architectural Mode
+Spatial Planner
+Room areas, aspect ratios, daylight factors per SR EN 17037, natural ventilation paths, circulation widths
+Zoning Compliance
+POT (lot coverage %), CUT (floor area ratio), height limits, setbacks per local PUG/PUZ
+FaÃ§ade Designer
+Solar shading analysis (Ladybug), U-value check (Legea 372/EPBD), window-to-wall ratio, aesthetic massing
+Accessibility
+Ramp grades (max 8%), corridor widths (min 1.20m), lift dimensions, accessible WC layouts per HG 923/2010
+Furniture & Fit-out
+Parametric furniture library (ISO/EN standard dimensions), clearance zones, ergonomic compliance
+Landscape & Site
+Permeable surface ratio, green area (min 20% residential), parking count per local norms
+Lighting Design
+Radiance-based daylight simulation, lux levels per SR EN 12464, emergency lighting routes per P118
+Fire Egress
+Travel distances, staircase widths, smoke compartmentation per P118-99
+4.2 Engineering Mode
+Engineering mode is the technical-calculation layer. Every element is sized, verified, and cross-checked against Eurocodes and Romanian normatives.
+Active Tools in Engineering Mode
+Structural Grid
+Column grid optimisation, load path visualisation, redundancy check per EC0 reliability classes
+Load Calculator
+Dead loads (self-weight from density), imposed loads (EN 1991-1-1), snow (CR 1-1-3), wind (CR 1-1-4), seismic (P100/EC8), load combinations ULS + SLS per EN 1990 Table A1.2
+RC Design (EC2)
+Beam/slab/column/foundation reinforcement design. Min cover, min/max rebar ratios, shear links, lap splices
+Steel Design (EC3)
+Section classification, bending/shear/axial checks, buckling curves, connection design
+Seismic Analysis
+OpenSeesPy response spectrum + pushover. Drift limits per P100 (Î´ â‰¤ 0.005h for brittle cladding, â‰¤ 0.0075h general)
+Foundation Design
+Bearing capacity (EC7/NP 112), settlement calculation, pile design if required, ground investigation prompt
+HVAC Engineering
+OpenStudio heating/cooling loads, duct sizing, ventilation rates per I5 normativ + EN 15251
+Plumbing Engineering
+Pipe sizing (SR EN 806), pressure zones, drainage slope, sewer capacity per NP 003
+Electrical
+Cable sizing (SR HD 60364), short-circuit current, protection coordination, earthing system per NTE 007
+Energy Certification
+EnergyPlus simulation â†’ energy class (Aâ€“G) per Legea 372/2005
+Smart Home / BAS
+KNX/BACnet topology, sensor placement, automation logic layers
+Security Systems
+CCTV coverage analysis, access control zones, intruder detection per SR EN 50131
+Fire Protection Eng.
+Sprinkler hydraulic calculation, fire pump sizing per SR EN 12845, smoke extraction per P118
+5. AI AGENT SYSTEM â€” MULTI-EXPERT DEBATE ENGINE
+The system runs multiple specialist AI agents simultaneously. Each agent has a defined knowledge domain, a set of hard constraints (building codes), and a 'personality' that reflects its discipline's typical priorities. When agents disagree, the Debate Moderator agent facilitates resolution and logs the reasoning.
+5.1 Agent Roster
+ðŸ—  Structural Agent
+Domain: EC2, EC3, EC8, P100. Priorities: safety, load path continuity, column sizing. Argues for: larger sections, more columns, conservative seismic detailing.
+ðŸ›  Architectural Agent
+Domain: RLU zoning, SR EN 17037, HG 923. Priorities: open space, natural light, aesthetics. Argues for: fewer columns, open plans, larger windows.
+ðŸ”§  MEP Agent
+Domain: I5, NP 003, SR HD 60364, EN 15251. Priorities: service routing, accessible shafts, adequate floor zones. Argues for: interstitial ceiling space, riser positions early in design.
+ðŸ”¥  Fire Safety Agent
+Domain: P118-99, SR EN 13501, EN 1365. Priorities: compartmentation, egress routes. Argues for: fire walls, protected stairwells, sprinklers.
+âš¡  Energy Agent
+Domain: Legea 372/2005, EPBD, NZEB targets. Priorities: insulation, thermal bridges, MVHR. Argues for: triple glazing, thicker walls, heat recovery.
+ðŸ   Smart Home Agent
+Domain: KNX, BACnet, IEEE 802.11, GDPR. Priorities: sensor integration, automation topology. Argues for: conduit routing for data, hub locations.
+ðŸ”’  Security Agent
+Domain: SR EN 50131, EN 50133, GDPR. Priorities: CCTV coverage, access control zoning. Argues for: blind-spot elimination, secure server room.
+âš–  Debate Moderator
+Meta-agent. Scores each argument against: code compliance weight, cost impact, constructability. Produces ranked resolution proposals with trade-off summary.
+5.2 Debate Protocol
+Trigger:  Any design decision that affects two or more agent domains triggers a debate session.
+Round 1 â€” Positions:  Each affected agent states its position and the specific code clause that supports it.
+Round 2 â€” Objections:  Agents raise objections to conflicting positions with quantified impact (cost/safety/performance delta).
+Round 3 â€” Proposals:  Each agent proposes a compromise that satisfies its hard constraints while accommodating others.
+Moderation:  Debate Moderator scores proposals. Hard code violations = disqualified. Remaining proposals ranked by multi-criteria score. Top proposal presented to user.
+User Override:  User may override the recommendation. System logs the override, notes the code implication, and requires explicit acknowledgement.
+5.3 Agent RAG Knowledge Base
+All agents retrieve from a vector database (ChromaDB) populated with chunked and embedded versions of the following source documents:
+P100-1/2013 â€” Seismic design code (Romania)
+CR 1-1-3/2012 â€” Snow loads (Romania)
+CR 1-1-4/2012 â€” Wind loads (Romania)
+NP 112/2014 â€” Foundation design (Romania)
+P118-99 â€” Fire safety (Romania)
+Legea 372/2005 + HG 847/2022 â€” Energy performance (Romania)
+HG 923/2010 â€” Accessibility (Romania)
+I5/1998 â€” HVAC normativ (Romania)
+NP 003/1996 â€” Plumbing normativ (Romania)
+NTE 007/08/00 â€” Electrical normativ (Romania)
+SR EN 1990 (EC0) â€” Basis of structural design
+SR EN 1991 (EC1) â€” Actions on structures
+SR EN 1992 (EC2) â€” Concrete structures
+SR EN 1993 (EC3) â€” Steel structures
+SR EN 1997 (EC7) â€” Geotechnical design
+SR EN 1998 (EC8) â€” Seismic design
+SR EN 15251 / EN 16798 â€” Indoor environment
+EPBD 2010/31/EU + 2024 recast â€” Energy performance of buildings
+SR EN 50131 â€” Intrusion detection systems
+SR EN 12845 â€” Fixed firefighting systems (sprinklers)
+6. SAFETY LAYER â€” DUAL-PASS CALCULATION VERIFICATION
+PRINCIPLE: No structural, energy, or compliance result is accepted until it has been independently re-calculated by a second engine. Divergence above tolerance automatically blocks output and escalates to the engineer. This mirrors the peer-checking obligation in real engineering practice (four-eyes principle).
+6.1 Architecture of the Safety Layer
+The Safety Layer sits between the Calculation Engine and the Output Generator. It is architecturally isolated â€” it has read-only access to inputs and cannot be influenced by Pass 1 results before running its own calculation.
+PASS 1 â€” Primary Engine
+OpenSeesPy (structural FEA) + OpenStudio (energy) + IfcOpenShell-derived geometry quantities
+PASS 2 â€” Verification Engine
+AnaStruct (2D frames), PyNite (3D frames), SciPy direct stiffness method (simple cases), hand-formula checks for standard beam/column cases
+Comparator
+Numerical diff of: reactions, member forces, moments, deflections, story drifts, energy loads, reinforcement areas
+Tolerance Bands
+â‰¤ 1% â€” PASS GREEN1â€“2% â€” PASS YELLOW (logged, noted in report)> 2% â€” FAIL RED (output blocked, engineer review required)> 10% â€” CRITICAL (likely modelling error, full abort)
+Override Policy
+A licensed engineer may override a YELLOW flag with signature. RED flags cannot be overridden â€” the model must be corrected.
+Audit Log
+Every calculation, both passes, tolerance result, and any overrides are stored in immutable audit log (timestamped, hashed).
+6.2 Safety Layer â€” Calculation Scope
+Structural Checks (both passes)
+Beam bending moment (max/midspan/support) â€” kNÂ·m
+Beam shear force â€” kN
+Column axial load and moment â€” kN, kNÂ·m
+Nodal displacements and rotations â€” mm, mrad
+Storey drift ratios â€” Î”/h (compared against P100 limits)
+Fundamental period T1 â€” seconds (modal analysis cross-check)
+Reaction forces at all supports â€” kN, kNÂ·m
+Required steel reinforcement area As â€” cmÂ² (EC2 design)
+Section utilisation ratios â€” â‰¤ 1.0 (ULS), â‰¤ 1.0 (SLS)
+Foundation bearing pressure â€” kPa (vs. allowable from EC7)
+Energy & Thermal Checks (both passes)
+Annual heating demand â€” kWh/mÂ²/year (vs. Legea 372 class limits)
+Annual cooling demand â€” kWh/mÂ²/year
+Peak heating load â€” kW (for boiler/heat pump sizing)
+Peak cooling load â€” kW (for chiller/AC sizing)
+U-values per element â€” W/mÂ²K (vs. minimum requirements)
+Thermal bridge linear transmittance Î¨ â€” W/mK
+Infiltration air change rate â€” ACH
+MEP Checks (rule-based cross-check)
+Pipe diameter vs. flow rate (Darcy-Weisbach) â€” velocity 0.7â€“3.0 m/s
+Drainage slope vs. self-cleaning velocity
+Cable cross-section vs. load current (IEC 60364 tables)
+Voltage drop along cable run â€” â‰¤ 3% lighting, â‰¤ 5% power
+Short-circuit current vs. breaker rating
+Ventilation rate per occupancy zone â€” L/s/person
+6.3 Safety Layer â€” Output Report
+When both passes complete, the Safety Layer produces a Verification Certificate appended to every calculation report. It contains:
+Table of all checked quantities with Pass 1 value, Pass 2 value, delta %, and status (GREEN/YELLOW/RED)
+Summary of all code compliance items (pass/fail per clause)
+List of any agent debate outcomes and engineer overrides
+Digital hash of the model state at time of calculation
+Recommended actions for any yellow/red flags
+Statement of assumptions (unit weights, soil parameters, live load category)
+7. ROMANIAN & EU STANDARDS â€” BUILT-IN REFERENCE
+7.1 Seismic Zones â€” Romania (P100-1/2013)
+Bucharest (BucureÈ™ti)
+ag = 0.30g  |  Tc = 1.6 s  |  High seismicity
+IaÈ™i
+ag = 0.20g  |  Tc = 1.0 s  |  Medium seismicity
+ConstanÈ›a
+ag = 0.20g  |  Tc = 0.7 s  |  Medium seismicity
+Cluj-Napoca
+ag = 0.10g  |  Tc = 0.7 s  |  Low seismicity
+TimiÈ™oara
+ag = 0.10g  |  Tc = 0.7 s  |  Low seismicity
+BraÈ™ov
+ag = 0.15g  |  Tc = 0.7 s  |  Low-medium seismicity
+GalaÈ›i / Vrancea zone
+ag = 0.35g  |  Tc = 1.6 s  |  Very high seismicity
+7.2 Key Design Parameters (Auto-Resolved by Geo-Engine)
+Snow load sk
+Zone I: 1.0 kN/mÂ²  |  Zone II: 1.5 kN/mÂ²  |  Zone III: 2.0 kN/mÂ²  |  Zone IV: 2.5 kN/mÂ²  (CR 1-1-3/2012)
+Wind pressure qb
+Zone I: 0.4 kPa  |  Zone II: 0.5 kPa  |  Zone III: 0.6 kPa  (CR 1-1-4/2012)
+Imposed loads
+Residential: 2.0 kN/mÂ²  |  Office: 3.0 kN/mÂ²  |  Commercial: 5.0 kN/mÂ²  |  Parking: 2.5 kN/mÂ²  (EN 1991-1-1)
+Concrete min. class
+C20/25 for structural elements. C25/30 recommended for columns. C30/37 for foundations in aggressive soil.
+Cover to reinforcement
+Interior: 25 mm  |  Exterior: 35 mm  |  Foundation (non-aggressive): 50 mm  |  Foundation (aggressive): 65 mm
+Seismic importance Î³I
+Class I (hospitals, schools): 1.4  |  Class II (residential >2 floors): 1.2  |  Class III (industrial): 1.0  |  Class IV (storage): 0.8
+Energy class new build
+Minimum class C (â‰¤150 kWh/mÂ²/year). Recommended B. NZEB target from 2021: near-zero energy.
+Zoning POT max
+R1 detached: 35%  |  R2 semi-detached: 40%  |  R3 collective: 45%  |  M mixed: 60%  |  C commercial: 70%
+7.3 AutoCAD Layer Standard (ISO + ARES/Romanian Practice)
+A-WALL
+Walls â€” Color 7 (white) â€” LW 0.50mm â€” CONTINUOUS
+A-DOOR
+Doors â€” Color 3 (green) â€” LW 0.25mm â€” CONTINUOUS
+A-WIND
+Windows â€” Color 4 (cyan) â€” LW 0.25mm â€” CONTINUOUS
+A-FURN
+Furniture â€” Color 8 (grey) â€” LW 0.18mm â€” CONTINUOUS
+A-ANNO
+Annotations/dimensions â€” Color 7 â€” LW 0.18mm
+S-BEAM
+Structural beams â€” Color 2 (yellow) â€” LW 0.70mm â€” CONTINUOUS
+S-COLM
+Columns â€” Color 1 (red) â€” LW 0.70mm â€” CONTINUOUS
+S-SLAB
+Slabs â€” Color 5 (blue) â€” LW 0.35mm â€” HIDDEN
+S-FNDN
+Foundations â€” Color 6 (magenta) â€” LW 0.70mm â€” CONTINUOUS
+M-HVAC
+HVAC ducts/pipes â€” Color 30 (orange) â€” LW 0.25mm
+E-POWR
+Electrical power â€” Color 6 (magenta) â€” LW 0.18mm
+E-LGHT
+Electrical lighting â€” Color 14 (yellow) â€” LW 0.18mm
+P-WATR
+Plumbing cold/hot water â€” Color 141 (teal) â€” LW 0.25mm
+P-SEWR
+Sewage/drainage â€” Color 33 (brown) â€” LW 0.25mm â€” DASHED
+F-SPKR
+Fire sprinklers â€” Color 10 (red) â€” LW 0.25mm
+F-EGRS
+Fire egress routes â€” Color 1 (red) â€” LW 0.35mm â€” DASHDOT
+T-DATA
+Data/telecom cabling â€” Color 4 (cyan) â€” LW 0.18mm
+Z-ZONE
+Zoning boundaries â€” Color 9 â€” LW 0.13mm â€” CENTER
+8. BLUEPRINT GENERATION ENGINE
+8.1 Drawing Types Generated
+Site Plan 1:500/1:1000
+Plot boundaries, setbacks, zoning, parking, landscaping, utility connections. Z-ZONE + A-SITE layers.
+Floor Plans 1:50/1:100
+All levels: walls, doors, windows, furniture (arch mode), column/beam grid (eng mode). Room areas, accessibility paths.
+Sections 1:50/1:100
+Cross-sections showing floor heights, storey heights, structural depths, ceiling zones, window sill/head levels.
+Elevations 1:50/1:100
+All four facades: materials hatch, window schedules, floor level lines, overall height.
+Structural Plans 1:50
+Beam/column grid, slab spans, reinforcement layout zones, foundation plan. S- layers only.
+Reinforcement Details 1:20
+Beam/column/slab rebar drawings: bar sizes, spacings, covers, laps, hooks â€” per EC2.
+MEP Plans 1:50
+Separate HVAC, electrical, plumbing plans. Duct/pipe sizes annotated. Shaft locations. Riser diagrams.
+Fire Safety Plan 1:100
+Compartmentation, egress routes, extinguisher/hydrant positions, sprinkler zones, smoke detectors.
+Electrical Single-Line
+Main distribution board, sub-boards, circuit schedule, earthing system, consumer unit layout.
+Energy Analysis Report
+EnergyPlus output: monthly loads chart, envelope summary, energy class certificate template.
+8.2 Title Block â€” SR ISO 5457 Compliant
+Project name (Romanian and EU format)
+Drawing title, drawing number, revision
+Scale bar (graphical + ratio)
+North arrow (site plans)
+Drawn by / Checked by / Approved by (with signature blocks)
+Date, revision history table (min. 5 revisions)
+Company/studio name and stamp placeholder
+RO-specific: Proiect nr., Faza (SF/PT/DE/DDE), Specialitate
+EU project reference (if applicable)
+Copyright notice
+9. PHYSICAL & MATHEMATICAL CALCULATIONS â€” FULL SCOPE
+9.1 Structural Mechanics
+Load Combinations (EC0)
+Fundamental: 1.35Â·Gk + 1.5Â·Qk + 1.5Â·Ïˆ0Â·WkSeismic: Gk + Ïˆ2Â·Qk + Ed  (SRSS/CQC combination)SLS: Gk + Qk (characteristic), Gk + Ïˆ1Â·Qk (frequent)
+Beam Theory
+Euler-Bernoulli: EIÂ·dâ´w/dxâ´ = q(x)Shear: V(x) = dM/dx, direct stiffness method for frames
+Column Buckling
+Ncr = Ï€Â²EI/(Le)Â²  |  Slenderness Î» = Le/iEC3 buckling curves a/b/c/d based on section and fabrication
+RC Section Design (EC2)
+As,req = M/(0.87Â·fykÂ·z)  |  z â‰ˆ 0.9d for preliminaryShear: VRd,c = [CRd,cÂ·kÂ·(100Â·ÏlÂ·fck)^(1/3)]Â·bwÂ·dMin: As,min = 0.26Â·(fctm/fyk)Â·bwÂ·d
+Seismic Base Shear
+Fb = Sd(T1)Â·mÂ·Î»  |  Sd from P100 response spectrumBehaviour factor q (DCH RC frames: q = 4.5Î±u/Î±1)
+Foundation Bearing
+qult = cÂ·NcÂ·scÂ·ic + qÂ·NqÂ·sqÂ·iq + 0.5Â·Î³Â·BÂ·NÎ³Â·sÎ³Â·iÎ³  (Meyerhof)qallowable = qult / FS  (FS â‰¥ 3.0 static, â‰¥ 2.0 seismic)
+Deflection (SLS)
+Î´max = 5Â·wÂ·Lâ´/(384Â·EI)  uniform loadLimit: L/250 total, L/500 post-partition per EC2
+Natural Frequency
+f1 = (Ï€/2LÂ²)Â·âˆš(EI/m)  â€” continuous beamT1 â‰ˆ CtÂ·H^(3/4) â€” approximate per EC8 (Ct = 0.075 RC frame)
+9.2 Thermal & Energy Physics
+Heat Transfer (U-value)
+U = 1/(Rsi + Î£(d/Î») + Rse)  W/mÂ²KRsi = 0.13, Rse = 0.04 mÂ²K/W (walls)
+Heating Demand
+Qh = Î£(UÂ·AÂ·Î”T) + 0.34Â·nÂ·VÂ·Î”T âˆ’ Qgains  [W]Annual: integrate over degree-days
+Ventilation Heat Loss
+Qvent = 0.34Â·VmechÂ·Î”T  [W]  (0.34 = ÏÂ·cp in Wh/mÂ³K)
+Solar Gains
+Qsol = Î£(FfÂ·FwÂ·FcÂ·gÂ·AÂ·I)  [W]Ladybug provides I (irradiance) from EPW weather file
+Energy Class
+NPER = (QH + QC + QDHW + Qlight + Qaux) / Anet  kWh/mÂ²/year
+9.3 Hydraulic Calculations (Plumbing)
+Pipe Sizing
+Darcy-Weisbach: Î”P = fÂ·(L/D)Â·(ÏvÂ²/2)v â‰¤ 3.0 m/s supply, v â‰¥ 0.7 m/s drainage (self-cleaning)
+Loading Units (DU)
+Demand units per EN 806-3: WC=2, shower=2, basin=0.5, bath=3Total flow: Qtot = KÂ·âˆšÎ£DU  [l/s]  K=0.5 residential
+Drainage Slope
+min 1% for DN75, min 0.5% for DN100, min 0.3% for DN150+
+9.4 Electrical Calculations
+Cable Sizing
+I = P/(âˆš3Â·UÂ·cosÏ†)  three-phase  |  I = P/(UÂ·cosÏ†)  single-phaseSelect cable from IEC 60364-5-52 current capacity tables
+Voltage Drop
+Î”U% = (2Â·IÂ·LÂ·cosÏ†)/(AÂ·Î³Â·U) Ã— 100â‰¤ 3% lighting, â‰¤ 5% power circuits
+Short-Circuit Current
+Ik = U0/(âˆš3Â·Ztotal)  |  Breaker Ics â‰¥ Ik
+Earth Fault Loop
+ZsÂ·Ia â‰¤ U0  (TN system, IEC 60364)
+10. IMPLEMENTATION ROADMAP
+Phase 1 â€” Foundation (Months 1â€“3)
+Set up React + Three.js + web-ifc 3D viewport
+Integrate IfcOpenShell Python backend (FastAPI or Flask)
+Implement geo-location engine: lat/lng â†’ seismic zone, snow/wind, zoning
+Build Romanian + Eurocode vector knowledge base (ChromaDB)
+Implement basic AutoCAD layer DXF export via ezdxf
+Deploy OpenSeesPy Pass 1 engine for simple 2D frames
+Deploy AnaStruct Safety Layer Pass 2 engine
+Build Safety Layer comparator with GREEN/YELLOW/RED logic
+Phase 2 â€” Dual Mode & Agents (Months 4â€“6)
+Implement Architectural Mode toolset (zoning, accessibility, daylight)
+Implement Engineering Mode toolset (full load combinations, EC2/EC3 design)
+Deploy all 8 AI agents with LangChain orchestration
+Build Debate Engine with conflict resolution protocol
+Integrate Ladybug Tools for solar/wind analysis
+Add EnergyPlus/OpenStudio energy simulation pipeline
+Implement blueprint generation: floor plans, sections, elevations
+Add ISO 5457 title block generator
+Phase 3 â€” Advanced Features (Months 7â€“10)
+Full 3D seismic analysis: P100 response spectrum + pushover in OpenSeesPy
+PyNite integration for 3D frame Safety Layer cross-check
+Reinforcement detail drawings (EC2 bar schedules)
+MEP engineering: HVAC duct sizing, electrical single-line, plumbing risers
+Smart home topology planner (KNX/BACnet layer)
+Fire safety engineering: sprinkler hydraulics, smoke extraction
+Energy certificate PDF generator (Legea 372 format)
+BIMserver integration for multi-user collaboration
+Blender rendering pipeline for photo-realistic views
+Phase 4 â€” Production Hardening (Months 11â€“12)
+Audit log system (immutable, timestamped, hashed)
+Engineer override workflow with digital signature
+Full IFC4 export validation (xBIM toolkit)
+Performance optimisation: large model LOD management
+Test against 5 real Romanian construction projects
+Third-party code compliance audit
+Documentation and user training materials

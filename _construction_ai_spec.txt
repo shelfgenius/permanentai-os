@@ -1,0 +1,49 @@
+CONSTRUCTION AI PLATFORM — COMPLETE IMPLEMENTATION SPEC
+CORE PRINCIPLE
+Single BIM-based engine with dual input modes:
+- AI Mode (auto-generate)
+- Manual Mode (full control)
+Both operate on one unified IFC-based model.
+WORKFLOW
+1. Project Initialization
+Define building type, floors, units, location, stage.
+System assigns codes, loads, assumptions.
+2. Structural Base
+AI: generate grid, columns, slabs, core.
+Manual: validate structure.
+3. Core Calculations
+Loads, preliminary sizing, stability checks.
+4. Room Zoning
+Residential: living, kitchen, bedrooms, bathrooms.
+Common: stairs, elevators, corridors.
+5. Openings
+Doors and windows placed based on access and daylight.
+6. Furniture
+Auto-placement per room type with clearance rules.
+7. MEP Placement
+Electrical:
+- outlets, switches, lights auto-placed per room
+- circuits auto-generated
+Plumbing:
+- fixtures placed near stacks
+- pipes auto-routed with slope
+HVAC:
+- airflow zones
+- ducts routed efficiently
+8. Manual Overrides
+User can modify anything; system re-validates.
+9. Validation
+Continuous checks: structure, MEP, clashes.
+10. Calculations
+Structural FEA, electrical loads, plumbing flow, HVAC loads.
+11. Safety Layer
+Dual-pass verification with adaptive tolerance.
+12. Outputs
+IFC, DXF, PDF, reports.
+KEY RULES
+- No calc without validation
+- No zoning without structure
+- No MEP without zoning
+- Everything editable
+FINAL RESULT
+Full construction-grade design platform.

@@ -1,0 +1,60 @@
+TITLE
+CONSTRUCTION AI PLATFORM — PRODUCTION GRADE SPECIFICATION
+1. SYSTEM OVERVIEW
+A full-stack BIM-based construction design platform integrating AI-assisted generation, manual
+modeling, engineering validation, and automated documentation.
+2. CORE ARCHITECTURE
+The system is built around a unified IFC model. All elements—architectural, structural, and
+MEP—exist in a single coordinated dataset.
+3. DUAL MODE OPERATION
+AI Mode: Generates full building from structured input. Manual Mode: User constructs every
+component. Hybrid Mode: AI generation followed by manual refinement.
+4. PROJECT INITIALIZATION
+Mandatory inputs: building type, number of floors, occupancy type, structural system, location,
+design stage. Outputs: applied codes, load assumptions, environmental parameters.
+5. DATA MODEL
+Each element contains: ID, type, geometry, material, system, relationships, metadata. Supports
+versioning and change tracking.
+6. STRUCTURAL ENGINE
+Generates structural grid, beams, columns, slabs, foundations. Performs load calculations,
+preliminary sizing, and stability validation.
+7. ROOM ZONING ENGINE
+Automatically divides floor plates into functional zones using rule-based logic. Ensures adjacency
+constraints and circulation paths.
+8. OPENINGS ENGINE
+Places doors and windows based on access, daylight requirements, and façade exposure.
+9. FURNITURE ENGINE
+Auto-generates furniture layouts per room type with clearance validation.
+10. ELECTRICAL SYSTEM
+Includes devices, circuits, panels, cables. Calculates load, cable sizing, voltage drop, breaker
+selection.
+11. PLUMBING SYSTEM
+Generates fixture layouts, pipe routing, slope validation, and flow calculations.
+12. HVAC SYSTEM
+Defines zones, airflow requirements, duct routing, and thermal loads.
+13. VALIDATION ENGINE
+Runs continuous checks: geometry integrity, system connectivity, code compliance.
+14. CALCULATION ENGINE
+Executes structural FEA, MEP calculations, and energy simulations.
+15. SAFETY LAYER
+Dual-pass verification with adaptive tolerance thresholds and result classification.
+16. OUTPUT ENGINE
+Generates IFC, DXF, PDF drawings, and calculation reports.
+17. VERSION CONTROL
+Supports full model versioning, rollback, and scenario comparison.
+18. PERFORMANCE OPTIMIZATION
+Includes level-of-detail rendering, lazy loading, and efficient data structures.
+19. API DESIGN
+RESTful API with endpoints for model manipulation, calculation, validation, and export.
+20. DATABASE STRUCTURE
+Tables: projects, elements, systems, calculations, versions, users.
+21. SECURITY
+Role-based access, audit logs, data integrity checks.
+22. ERROR HANDLING
+Centralized error reporting system with severity classification.
+23. TESTING STRATEGY
+Unit tests, integration tests, simulation validation, real project benchmarking.
+24. DEPLOYMENT
+Containerized services using Docker, scalable backend architecture.
+25. FINAL OBJECTIVE
+Deliver a professional-grade, reliable, and scalable construction design platform.

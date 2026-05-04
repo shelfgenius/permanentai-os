@@ -1,0 +1,47 @@
+CONSTRUCTION AI PLATFORM — FULL TECHNICAL SPECIFICATION
+1. INTRODUCTION
+This document defines a complete, production-ready architecture for a dual-mode construction
+design platform integrating BIM, AI-assisted generation, and engineering validation.
+2. SYSTEM CORE
+The system is built on a unified IFC-based model where all elements—architectural, structural, and
+MEP—coexist and interact.
+3. DUAL MODE SYSTEM
+AI Mode allows users to describe projects in natural language, generating full models.
+Manual Mode allows full control over every element.
+Both modes write to the same model.
+4. PROJECT INITIALIZATION
+User inputs: building type, floors, units, location, stage.
+System assigns loads, codes, assumptions.
+5. STRUCTURAL ENGINE
+Generates grids, columns, beams, slabs, cores.
+Performs load calculations and preliminary sizing.
+6. ROOM ZONING ENGINE
+Automatically divides space into functional zones.
+Residential: bedrooms, kitchens, bathrooms.
+Common: stairs, elevators, corridors.
+7. OPENINGS ENGINE
+Doors and windows placed according to access and daylight rules.
+8. FURNITURE ENGINE
+Auto placement with clearance validation.
+9. ELECTRICAL SYSTEM
+Devices: outlets, switches, lights.
+Auto circuit generation, load calculation, cable sizing.
+10. PLUMBING SYSTEM
+Fixtures placed near stacks.
+Pipe routing with slope validation.
+11. HVAC SYSTEM
+Airflow zones, duct routing, pressure calculations.
+12. VALIDATION SYSTEM
+Checks for structural, MEP, and geometric errors.
+13. CALCULATION ENGINE
+Structural FEA, electrical loads, plumbing flows, HVAC loads.
+14. SAFETY LAYER
+Dual-pass verification with adaptive tolerances.
+15. OUTPUTS
+IFC, DXF, PDF drawings and reports.
+16. VERSIONING
+Track changes and compare scenarios.
+17. PERFORMANCE
+LOD, lazy loading, optimization.
+18. FINAL GOAL
+A fully integrated construction-grade design system.

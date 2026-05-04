@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      '@construct': path.resolve(__dirname, './src/construct'),
       '@': path.resolve(__dirname, './src'),
     },
     dedupe: ['three', '@react-three/fiber', '@react-three/drei'],

@@ -34,6 +34,7 @@ const AI_MODELS = [
 // transcription. Uses AudioContext analyzer for real orb visualization.
 function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silenceThreshold = 0.025 } = {}) {
   const [isRecording, setIsRecording] = useState(false);
+  const isRecordingRef = useRef(false); // non-stale ref for use inside timers
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioData, setAudioData] = useState(new Uint8Array(128));
   const [transcript, setTranscript] = useState('');
@@ -50,6 +51,11 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
   const onAutoTranscriptRef = useRef(onAutoTranscript);
   onAutoTranscriptRef.current = onAutoTranscript;
   const autoStopRef = useRef(null); // ref so startAnalyzer can call latest _autoStop
+  // Store params in refs so the analyzer (which has [] deps) always reads fresh values
+  const silenceTimeoutRef = useRef(silenceTimeout);
+  const silenceThresholdRef = useRef(silenceThreshold);
+  silenceTimeoutRef.current = silenceTimeout;
+  silenceThresholdRef.current = silenceThreshold;
 
   // Fetch ElevenLabs config once for direct browser STT
   const elConfigRef = useRef(null);
@@ -128,6 +134,7 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
         chunksRef.current = [];
         setIsRecording(false);
+        isRecordingRef.current = false;
         console.log('[AURA] Auto-stop blob size:', blob.size);
         if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); resolve(); return; }
         const text = await transcribeAudio(blob);
@@ -161,21 +168,23 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
         setAudioData(arr);
 
         // ── Silence detection for auto-send ──
-        // Use a higher threshold for "speech detected" vs "silence"
-        const speechLevel = 0.035;
+        // Read from refs to avoid stale closure (startAnalyzer has [] deps)
+        const curThreshold = silenceThresholdRef.current;
+        const curTimeout = silenceTimeoutRef.current;
+        const speechLevel = Math.max(curThreshold * 1.4, 0.03); // speech must be clearly above silence
         if (level > speechLevel) {
           hasSpeechRef.current = true;
           silenceStartRef.current = null;
           setSilenceRatio(0);
-        } else if (hasSpeechRef.current && level <= silenceThreshold) {
+        } else if (hasSpeechRef.current && level <= curThreshold) {
           if (!silenceStartRef.current) {
             silenceStartRef.current = performance.now();
           }
           const elapsed = performance.now() - silenceStartRef.current;
-          setSilenceRatio(Math.min(elapsed / silenceTimeout, 1));
-          if (elapsed >= silenceTimeout && !autoStopFiredRef.current) {
+          setSilenceRatio(Math.min(elapsed / curTimeout, 1));
+          if (elapsed >= curTimeout && !autoStopFiredRef.current) {
             autoStopFiredRef.current = true;
-            console.log('[AURA] Silence detected — auto-stopping recording');
+            console.log('[AURA] Silence detected — auto-stopping recording after', Math.round(elapsed), 'ms');
             autoStopRef.current?.();
             return; // stop the tick loop
           }
@@ -203,6 +212,7 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
           const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
           chunksRef.current = [];
           setIsRecording(false);
+          isRecordingRef.current = false;
           console.log('[AURA] Recording stopped, blob size:', blob.size);
           if (blob.size < 1000) { console.log('[AURA] Audio too short'); resolve(''); return; }
           const text = await transcribeAudio(blob);
@@ -224,6 +234,7 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
         rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
         rec.start();
         setIsRecording(true);
+        isRecordingRef.current = true;
         startAnalyzer(stream);
         console.log('[AURA] Recording started, mimeType:', rec.mimeType);
         return '';
@@ -255,7 +266,7 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silence
     }
   }, []);
 
-  return { isRecording, audioLevel, audioData, transcript, toggleRecording, silenceRatio, releaseMic };
+  return { isRecording, isRecordingRef, audioLevel, audioData, transcript, toggleRecording, silenceRatio, releaseMic };
 }
 
 // ─── State Indicator ───────────────────────────────────────────────
@@ -441,8 +452,8 @@ export default function AuraChat({ onBack }) {
   const { backendUrl } = useStore();
   const handleSendRef = useRef(null);
   const voice = useVoice(backendUrl, {
-    silenceTimeout: 2000,
-    silenceThreshold: 0.04,
+    silenceTimeout: 1600,
+    silenceThreshold: 0.02,
     onAutoTranscript: (text) => {
       console.log('[AURA] Auto-transcript from silence detection:', text.slice(0, 60));
       // User spoke — cancel inactivity timer
@@ -508,7 +519,7 @@ export default function AuraChat({ onBack }) {
   }, [voice]);
 
   const startListening = useCallback(async () => {
-    if (voice.isRecording) return;
+    if (voice.isRecordingRef.current) return;
     wakeStoppedIntentionally.current = true;
     stopWakeWord();
     try {
@@ -518,8 +529,8 @@ export default function AuraChat({ onBack }) {
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = setTimeout(() => {
         console.log('[AURA] 20s inactivity — going to standby');
-        // Only timeout if still in listening state (not already processing)
-        if (voice.isRecording) {
+        // Use ref to avoid stale closure — voice.isRecording would be stale here
+        if (voice.isRecordingRef.current) {
           voice.toggleRecording(); // stop mic silently (discard)
         }
         goToStandby();
@@ -535,7 +546,7 @@ export default function AuraChat({ onBack }) {
 
   const startWakeWordDetection = useCallback(() => {
     // Don't start if already listening, processing, or TTS playing
-    if (voice.isRecording || isProcessing) {
+    if (voice.isRecordingRef.current || isProcessing) {
       console.log('[AURA] Wake word skip: recording or processing');
       return;
     }
@@ -752,12 +763,15 @@ export default function AuraChat({ onBack }) {
       setShowThinking(false);
       setIsProcessing(false);
       abortRef.current = null;
-      // Wait for TTS to finish, then go to standby with wake-word
+      // Wait for TTS to finish, then re-open mic for 20s follow-up
+      // (Alexa-style: user can keep talking without re-saying wake word)
       const waitForTts = () => {
         if (isTtsSpeaking()) {
           setTimeout(waitForTts, 500);
         } else {
-          goToStandby();
+          // Re-open mic for follow-up conversation
+          console.log('[AURA] TTS done — opening mic for 20s follow-up');
+          if (startListeningRef.current) startListeningRef.current();
         }
       };
       setTimeout(waitForTts, 600);

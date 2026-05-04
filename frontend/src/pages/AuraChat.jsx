@@ -232,13 +232,25 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
     };
   }, []);
 
-  return { isRecording, audioLevel, audioData, transcript, toggleRecording, silenceRatio };
+  // Fully release mic stream (so wake-word SpeechRecognition can use it)
+  const releaseMic = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+  }, []);
+
+  return { isRecording, audioLevel, audioData, transcript, toggleRecording, silenceRatio, releaseMic };
 }
 
 // ─── State Indicator ───────────────────────────────────────────────
 function StateIndicator({ state }) {
   const cfg = {
-    standby: { label: 'Ready', Icon: CircleDot, cls: 'state-pill standby' },
+    standby: { label: 'Say "Aura"', Icon: CircleDot, cls: 'state-pill standby' },
     listening: { label: 'Listening...', Icon: Mic, cls: 'state-pill listening' },
     thinking: { label: 'Processing...', Icon: Loader2, cls: 'state-pill thinking' },
     speaking: { label: 'Speaking', Icon: AudioLines, cls: 'state-pill speaking' },
@@ -475,14 +487,17 @@ export default function AuraChat({ onBack }) {
   const goToStandby = useCallback(() => {
     if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
     setOrbState('standby');
-    // Start wake-word detection after a short delay
+    // Release the mic fully so SpeechRecognition can grab it
+    voice.releaseMic();
+    // Start wake-word detection after mic is released
     setTimeout(() => {
       if (startWakeWordRef.current) startWakeWordRef.current();
-    }, 500);
-  }, []);
+    }, 800);
+  }, [voice]);
 
   const startListening = useCallback(async () => {
     if (voice.isRecording) return;
+    wakeStoppedIntentionally.current = true;
     stopWakeWord();
     try {
       await voice.toggleRecording();
@@ -503,57 +518,95 @@ export default function AuraChat({ onBack }) {
 
   // ── Wake-word detection: "Aura" via Web Speech API ─────────────
   const startWakeWordRef = useRef(null);
+  const wakeRetryCount = useRef(0);
+  const wakeStoppedIntentionally = useRef(false);
+
   const startWakeWordDetection = useCallback(() => {
     // Don't start if already listening, processing, or TTS playing
-    if (voice.isRecording || isProcessing || isTtsSpeaking()) return;
+    if (voice.isRecording || isProcessing) {
+      console.log('[AURA] Wake word skip: recording or processing');
+      return;
+    }
+    if (isTtsSpeaking()) {
+      console.log('[AURA] Wake word: TTS still playing, will retry in 1s');
+      setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 1000);
+      return;
+    }
     stopWakeWord();
+    wakeStoppedIntentionally.current = false;
 
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      console.warn('[AURA] SpeechRecognition not supported — no wake word');
+      console.warn('[AURA] SpeechRecognition not supported — tap mic to wake');
       return;
     }
 
+    console.log('[AURA] Starting wake-word detection (attempt', wakeRetryCount.current + 1, ')');
     const rec = new SpeechRec();
-    rec.continuous = true;
+    rec.continuous = false; // single utterance — more reliable than continuous
     rec.interimResults = true;
     rec.lang = 'en-US';
+    rec.maxAlternatives = 3;
     wakeRecRef.current = rec;
 
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript.toLowerCase();
-        if (transcript.includes('aura') || transcript.includes('ora') || transcript.includes('laura')) {
-          console.log('[AURA] Wake word detected:', transcript);
-          rec.abort();
-          wakeRecRef.current = null;
-          // Activate listening
-          if (startListeningRef.current) startListeningRef.current();
-          return;
+        // Check all alternatives for wake word
+        for (let a = 0; a < e.results[i].length; a++) {
+          const t = e.results[i][a].transcript.toLowerCase();
+          if (t.includes('aura') || t.includes('ora') || t.includes('laura') || t.includes('hey aura') || t.includes('aurora')) {
+            console.log('[AURA] ✓ Wake word detected:', t);
+            wakeStoppedIntentionally.current = true;
+            try { rec.abort(); } catch {}
+            wakeRecRef.current = null;
+            wakeRetryCount.current = 0;
+            // Activate listening
+            if (startListeningRef.current) startListeningRef.current();
+            return;
+          }
         }
       }
     };
 
     rec.onerror = (e) => {
-      if (e.error !== 'aborted' && e.error !== 'no-speech') {
-        console.warn('[AURA] Wake word error:', e.error);
-      }
-      // Restart on transient errors
+      if (e.error === 'aborted') return; // intentional stop
+      console.log('[AURA] Wake word error:', e.error);
       wakeRecRef.current = null;
-      if (e.error === 'no-speech' || e.error === 'network') {
-        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 1000);
+
+      // Retry with backoff for recoverable errors
+      const delay = e.error === 'not-allowed' ? 3000
+                  : e.error === 'no-speech' ? 500
+                  : e.error === 'network' ? 2000
+                  : e.error === 'audio-capture' ? 2000
+                  : 1500;
+
+      if (wakeRetryCount.current < 50 && !wakeStoppedIntentionally.current) {
+        wakeRetryCount.current++;
+        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, delay);
       }
     };
 
     rec.onend = () => {
-      // Auto-restart if still in standby and wasn't intentionally stopped
-      if (wakeRecRef.current === rec) {
+      // Auto-restart if wasn't stopped intentionally (normal end after utterance)
+      if (!wakeStoppedIntentionally.current && wakeRetryCount.current < 50) {
         wakeRecRef.current = null;
+        wakeRetryCount.current++;
         setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 300);
       }
     };
 
-    try { rec.start(); } catch { wakeRecRef.current = null; }
+    try {
+      rec.start();
+      wakeRetryCount.current = 0; // reset on successful start
+      console.log('[AURA] Wake-word listening active — say "Aura" to activate');
+    } catch (err) {
+      console.warn('[AURA] Wake word start failed:', err.message);
+      wakeRecRef.current = null;
+      if (wakeRetryCount.current < 10) {
+        wakeRetryCount.current++;
+        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 2000);
+      }
+    }
   }, [voice.isRecording, isProcessing, stopWakeWord]);
   startWakeWordRef.current = startWakeWordDetection;
 

@@ -13,6 +13,10 @@ import { fetchGlobalSetting, subscribeGlobalSettings } from './lib/supabaseData.
 
 // Lazy-loaded pages — each becomes its own JS chunk, downloaded only when visited
 const AIHub      = lazy(() => import(/* webpackChunkName: "aura" */    './pages/AIHub.jsx'));
+const AuraMenu   = lazy(() => import(/* webpackChunkName: "aura-menu" */  './pages/AuraMenu.jsx'));
+const AuraChatMode    = lazy(() => import(/* webpackChunkName: "aura-chat-mode" */ './pages/AuraChatMode.jsx'));
+const AuraLiveMode    = lazy(() => import(/* webpackChunkName: "aura-live" */ './pages/AuraLiveMode.jsx'));
+const AuraResearchMode = lazy(() => import(/* webpackChunkName: "aura-research" */ './pages/AuraResearchMode.jsx'));
 const LexiHub    = lazy(() => import(/* webpackChunkName: "lexi" */    './pages/LexiHub.jsx'));
 const CanvasHub  = lazy(() => import(/* webpackChunkName: "canvas" */  './pages/CanvasHub.jsx'));
 const NexusHub   = lazy(() => import(/* webpackChunkName: "nexus" */   './pages/NexusHub.jsx'));
@@ -25,7 +29,7 @@ const SlideHub   = lazy(() => import(/* webpackChunkName: "slide" */   './pages/
 const AuraChat   = lazy(() => import(/* webpackChunkName: "aura-chat" */ './pages/AuraChat.jsx'));
 const LegalPage  = lazy(() => import(/* webpackChunkName: "legal" */   './pages/LegalPage.jsx'));
 const CertsPage  = lazy(() => import(/* webpackChunkName: "certs" */   './pages/CertsPage.jsx'));
-const ConstructHub = lazy(() => import(/* webpackChunkName: "construct" */ './pages/ConstructHub.jsx'));
+
 
 // Minimal loading spinner shown while a lazy chunk downloads
 function PageLoader() {
@@ -50,7 +54,6 @@ const PAGE_ROUTES = {
   youtube: '/youtube',
   legal:   '/legal',
   certs:   '/certs',
-  pascal:  '/pascal',
 };
 
 export default function App() {
@@ -134,6 +137,7 @@ function AppShell() {
   };
 
   const goBack = () => navigate('/');
+  const goToAura = () => navigate('/aura');
 
   // Navigate to a page by internal ID (used by MainMenu.onSelect)
   const handleSelect = (id) => {
@@ -188,10 +192,19 @@ function AppShell() {
                 <MainMenu currentUser={user} onLogout={handleLogout} onSelect={handleSelect} />
               } />
               <Route path="/aura" element={
-                <AIHub currentUser={user} onBack={goBack} onLogout={handleLogout} onNavigate={navigate} />
+                <AuraMenu onBack={goBack} />
               } />
-              <Route path="/aura-chat" element={
-                <AuraChat onBack={goBack} />
+              <Route path="/aura/chat" element={
+                <AuraChatMode onBack={goToAura} />
+              } />
+              <Route path="/aura/voice" element={
+                <AuraChat onBack={goToAura} />
+              } />
+              <Route path="/aura/live" element={
+                <AuraLiveMode onBack={goToAura} />
+              } />
+              <Route path="/aura/research" element={
+                <AuraResearchMode onBack={goToAura} />
               } />
               <Route path="/lexi" element={
                 <LexiHub onBack={goBack} />
@@ -225,9 +238,6 @@ function AppShell() {
               } />
               <Route path="/certs" element={
                 <CertsPage onBack={goBack} />
-              } />
-              <Route path="/pascal" element={
-                <ConstructHub onBack={goBack} />
               } />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

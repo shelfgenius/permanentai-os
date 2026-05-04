@@ -32,7 +32,7 @@ const AI_MODELS = [
 // ─── Voice hook — MediaRecorder + Backend Parakeet ASR ──────────────────────
 // Records audio via getUserMedia/MediaRecorder, sends to backend for
 // transcription. Uses AudioContext analyzer for real orb visualization.
-function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silenceThreshold = 0.04 } = {}) {
+function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 1800, silenceThreshold = 0.025 } = {}) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioData, setAudioData] = useState(new Uint8Array(128));
@@ -119,20 +119,25 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
   // Auto-stop triggered by silence detection — defined AFTER transcribeAudio
   const _autoStop = useCallback(async () => {
     stopAnalyzer();
-    setIsRecording(false);
     const rec = mediaRecorderRef.current;
-    if (!rec || rec.state === 'inactive') return;
-    rec.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
-      chunksRef.current = [];
-      console.log('[AURA] Auto-stop blob size:', blob.size);
-      if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); return; }
-      const text = await transcribeAudio(blob);
-      if (text && text.trim() && onAutoTranscriptRef.current) {
-        onAutoTranscriptRef.current(text.trim());
-      }
-    };
-    rec.stop();
+    if (!rec || rec.state === 'inactive') { setIsRecording(false); return; }
+    // Important: collect blob BEFORE setting isRecording=false
+    // so external code doesn't race with the state change
+    return new Promise((resolve) => {
+      rec.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+        chunksRef.current = [];
+        setIsRecording(false);
+        console.log('[AURA] Auto-stop blob size:', blob.size);
+        if (blob.size < 1000) { console.log('[AURA] Audio too short for auto-send'); resolve(); return; }
+        const text = await transcribeAudio(blob);
+        if (text && text.trim() && onAutoTranscriptRef.current) {
+          onAutoTranscriptRef.current(text.trim());
+        }
+        resolve();
+      };
+      rec.stop();
+    });
   }, [stopAnalyzer, transcribeAudio]);
   autoStopRef.current = _autoStop; // keep ref updated for startAnalyzer
 
@@ -156,11 +161,13 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
         setAudioData(arr);
 
         // ── Silence detection for auto-send ──
-        if (level > silenceThreshold) {
+        // Use a higher threshold for "speech detected" vs "silence"
+        const speechLevel = 0.035;
+        if (level > speechLevel) {
           hasSpeechRef.current = true;
           silenceStartRef.current = null;
           setSilenceRatio(0);
-        } else if (hasSpeechRef.current) {
+        } else if (hasSpeechRef.current && level <= silenceThreshold) {
           if (!silenceStartRef.current) {
             silenceStartRef.current = performance.now();
           }
@@ -172,6 +179,10 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
             autoStopRef.current?.();
             return; // stop the tick loop
           }
+        } else if (!hasSpeechRef.current) {
+          // Haven't detected speech yet — keep waiting
+          silenceStartRef.current = null;
+          setSilenceRatio(0);
         }
 
         rafRef.current = requestAnimationFrame(tick);
@@ -185,13 +196,13 @@ function useVoice(backendUrl, { onAutoTranscript, silenceTimeout = 2000, silence
     if (isRecording) {
       // ── Stop recording → send to ASR ──
       stopAnalyzer();
-      setIsRecording(false);
       return new Promise((resolve) => {
         const rec = mediaRecorderRef.current;
-        if (!rec || rec.state === 'inactive') { resolve(''); return; }
+        if (!rec || rec.state === 'inactive') { setIsRecording(false); resolve(''); return; }
         rec.onstop = async () => {
           const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
           chunksRef.current = [];
+          setIsRecording(false);
           console.log('[AURA] Recording stopped, blob size:', blob.size);
           if (blob.size < 1000) { console.log('[AURA] Audio too short'); resolve(''); return; }
           const text = await transcribeAudio(blob);
@@ -489,10 +500,11 @@ export default function AuraChat({ onBack }) {
     setOrbState('standby');
     // Release the mic fully so SpeechRecognition can grab it
     voice.releaseMic();
-    // Start wake-word detection after mic is released
+    // Start wake-word detection after mic is fully released
+    // Needs enough delay for the audio device to be freed
     setTimeout(() => {
       if (startWakeWordRef.current) startWakeWordRef.current();
-    }, 800);
+    }, 1200);
   }, [voice]);
 
   const startListening = useCallback(async () => {
@@ -543,10 +555,10 @@ export default function AuraChat({ onBack }) {
 
     console.log('[AURA] Starting wake-word detection (attempt', wakeRetryCount.current + 1, ')');
     const rec = new SpeechRec();
-    rec.continuous = false; // single utterance — more reliable than continuous
+    rec.continuous = true;   // stay open so user can say "Aura" at any time
     rec.interimResults = true;
     rec.lang = 'en-US';
-    rec.maxAlternatives = 3;
+    rec.maxAlternatives = 5;
     wakeRecRef.current = rec;
 
     rec.onresult = (e) => {
@@ -554,7 +566,7 @@ export default function AuraChat({ onBack }) {
         // Check all alternatives for wake word
         for (let a = 0; a < e.results[i].length; a++) {
           const t = e.results[i][a].transcript.toLowerCase();
-          if (t.includes('aura') || t.includes('ora') || t.includes('laura') || t.includes('hey aura') || t.includes('aurora')) {
+          if (t.includes('aura') || t.includes('ora') || t.includes('laura') || t.includes('hey aura') || t.includes('aurora') || t.includes('orra') || t.includes('hey ora') || t.includes('aora')) {
             console.log('[AURA] ✓ Wake word detected:', t);
             wakeStoppedIntentionally.current = true;
             try { rec.abort(); } catch {}
@@ -580,18 +592,21 @@ export default function AuraChat({ onBack }) {
                   : e.error === 'audio-capture' ? 2000
                   : 1500;
 
-      if (wakeRetryCount.current < 50 && !wakeStoppedIntentionally.current) {
+      if (wakeRetryCount.current < 100 && !wakeStoppedIntentionally.current) {
         wakeRetryCount.current++;
         setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, delay);
+      } else if (wakeRetryCount.current >= 100) {
+        console.warn('[AURA] Wake word: too many errors, giving up. Tap mic to activate.');
       }
     };
 
     rec.onend = () => {
-      // Auto-restart if wasn't stopped intentionally (normal end after utterance)
-      if (!wakeStoppedIntentionally.current && wakeRetryCount.current < 50) {
+      // Auto-restart if wasn't stopped intentionally
+      // Don't increment retry count for normal onend — only errors should count
+      if (!wakeStoppedIntentionally.current) {
         wakeRecRef.current = null;
-        wakeRetryCount.current++;
-        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 300);
+        // Small delay then restart — browser killed the session (normal for continuous)
+        setTimeout(() => { if (startWakeWordRef.current) startWakeWordRef.current(); }, 200);
       }
     };
 

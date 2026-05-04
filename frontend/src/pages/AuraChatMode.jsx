@@ -8,6 +8,7 @@ export default function AuraChatMode({ onBack }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activePipeline, setActivePipeline] = useState(null);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const conversationRef = useRef([]);
@@ -37,21 +38,20 @@ export default function AuraChatMode({ onBack }) {
     conversationRef.current.push({ role: 'user', content: text });
 
     const assistantId = Date.now() + 1;
-    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '' }]);
+    setActivePipeline(null);
+    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', pipeline: null }]);
 
     try {
       const controller = new AbortController();
       abortRef.current = controller;
-      const timeout = setTimeout(() => controller.abort(), 60000);
+      const timeout = setTimeout(() => controller.abort(), 120000);
 
-      const res = await fetch(`${backendUrl}/nvidia/chat`, {
+      const res = await fetch(`${backendUrl}/aura/pipeline/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: conversationRef.current.slice(-20),
           stream: true,
-          enable_thinking: true,
-          reasoning_budget: 16384,
         }),
         signal: controller.signal,
       });
@@ -62,6 +62,7 @@ export default function AuraChatMode({ onBack }) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
+      let gotPipelineMeta = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -72,6 +73,16 @@ export default function AuraChatMode({ onBack }) {
           if (data === '[DONE]') continue;
           try {
             const parsed = JSON.parse(data);
+            // First event from pipeline router is metadata
+            if (!gotPipelineMeta && parsed.pipeline) {
+              gotPipelineMeta = true;
+              const label = parsed.label || parsed.pipeline;
+              setActivePipeline(label);
+              setMessages(prev =>
+                prev.map(m => (m.id === assistantId ? { ...m, pipeline: label } : m)),
+              );
+              continue;
+            }
             const token = parsed.choices?.[0]?.delta?.content || '';
             if (token) {
               fullText += token;
@@ -119,7 +130,9 @@ export default function AuraChatMode({ onBack }) {
         </button>
         <div>
           <h2 className="text-base font-semibold text-[#1A1A1A]">AURA Chat</h2>
-          <p className="text-xs text-[#A0A0A0]">Text conversation</p>
+          <p className="text-xs text-[#A0A0A0]">
+            {activePipeline ? `Pipeline: ${activePipeline}` : 'Smart pipeline routing'}
+          </p>
         </div>
       </div>
 
@@ -132,7 +145,7 @@ export default function AuraChatMode({ onBack }) {
             </div>
             <h3 className="text-lg font-semibold text-[#1A1A1A] mb-1">Start a conversation</h3>
             <p className="text-sm text-[#6B6B6B] max-w-xs">
-              Ask AURA anything — from quick questions to complex analysis.
+              AURA auto-selects the optimal pipeline — from quick chat to deep reasoning.
             </p>
           </div>
         )}
@@ -156,16 +169,25 @@ export default function AuraChatMode({ onBack }) {
                 {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
               </div>
               <div
-                className={`max-w-[75%] px-4 py-3 rounded-2xl text-[14px] leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[75%] rounded-2xl text-[14px] leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-[#B87333] text-white rounded-br-md'
+                    ? 'bg-[#B87333] text-white rounded-br-md px-4 py-3'
                     : 'bg-[#F5F0EB] text-[#1A1A1A] rounded-bl-md'
                 }`}
               >
-                {msg.content ||
-                  (msg.role === 'assistant' && (
-                    <Loader2 size={16} className="animate-spin text-[#B87333]" />
-                  ))}
+                {msg.role === 'assistant' && msg.pipeline && (
+                  <div className="px-4 pt-2.5 pb-0">
+                    <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(184,115,51,0.1)] text-[#B87333]">
+                      {msg.pipeline}
+                    </span>
+                  </div>
+                )}
+                <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>
+                  {msg.content ||
+                    (msg.role === 'assistant' && (
+                      <Loader2 size={16} className="animate-spin text-[#B87333]" />
+                    ))}
+                </div>
               </div>
             </motion.div>
           ))}

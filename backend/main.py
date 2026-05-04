@@ -51,6 +51,7 @@ from routers.aura_voice_router import router as aura_voice_router
 from routers.elevenlabs_router import router as elevenlabs_router
 from routers.echo_router import router as echo_router
 from routers.geocode_router import router as geocode_router
+from routers.aura_pipeline_router import router as aura_pipeline_router
 
 # Optional routers — may fail on cloud if heavy deps (torch, chromadb) are missing
 _optional_routers = {}
@@ -139,6 +140,7 @@ app.include_router(aura_voice_router)
 app.include_router(elevenlabs_router)
 app.include_router(echo_router)
 app.include_router(geocode_router)
+app.include_router(aura_pipeline_router)
 
 # Optional routers (loaded only if deps available)
 for name, r in _optional_routers.items():

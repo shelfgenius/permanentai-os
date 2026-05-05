@@ -29,6 +29,7 @@ const SlideHub   = lazy(() => import(/* webpackChunkName: "slide" */   './pages/
 const AuraChat   = lazy(() => import(/* webpackChunkName: "aura-chat" */ './pages/AuraChat.jsx'));
 const LegalPage  = lazy(() => import(/* webpackChunkName: "legal" */   './pages/LegalPage.jsx'));
 const CertsPage  = lazy(() => import(/* webpackChunkName: "certs" */   './pages/CertsPage.jsx'));
+const KnowledgeMap = lazy(() => import(/* webpackChunkName: "knowledge-map" */ './pages/KnowledgeMap.jsx'));
 
 
 // Minimal loading spinner shown while a lazy chunk downloads
@@ -205,6 +206,9 @@ function AppShell() {
               } />
               <Route path="/aura/research" element={
                 <AuraResearchMode onBack={goToAura} />
+              } />
+              <Route path="/brain" element={
+                <KnowledgeMap onBack={goBack} />
               } />
               <Route path="/lexi" element={
                 <LexiHub onBack={goBack} />

@@ -1,7 +1,7 @@
 import React, { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MessageSquare, Mic, Radio, Search } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Mic, Radio, Search, Brain } from 'lucide-react';
 
 const AURA_MODES = [
   {
@@ -31,6 +31,13 @@ const AURA_MODES = [
     desc: 'Web scraping, multi-source analysis, and comprehensive reports.',
     Icon: Search,
     route: '/aura/research',
+  },
+  {
+    id: 'brain',
+    label: 'Knowledge Map',
+    desc: 'Visualize and manage your AI\'s persistent memory graph.',
+    Icon: Brain,
+    route: '/brain',
   },
 ];
 

@@ -52,6 +52,7 @@ from routers.elevenlabs_router import router as elevenlabs_router
 from routers.echo_router import router as echo_router
 from routers.geocode_router import router as geocode_router
 from routers.aura_pipeline_router import router as aura_pipeline_router
+from routers.brain_router import router as brain_router
 
 # Optional routers — may fail on cloud if heavy deps (torch, chromadb) are missing
 _optional_routers = {}
@@ -88,6 +89,14 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialised")
     except Exception as exc:
         logger.warning("DB init skipped (not connected): %s", exc)
+
+    # Start the async background worker for persistent jobs
+    try:
+        from services.async_worker import start_worker
+        start_worker()
+        logger.info("Async worker started")
+    except Exception as exc:
+        logger.warning("Async worker failed to start: %s", exc)
 
     yield
 
@@ -141,6 +150,7 @@ app.include_router(elevenlabs_router)
 app.include_router(echo_router)
 app.include_router(geocode_router)
 app.include_router(aura_pipeline_router)
+app.include_router(brain_router)
 
 # Optional routers (loaded only if deps available)
 for name, r in _optional_routers.items():

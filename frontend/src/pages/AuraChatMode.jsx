@@ -1,7 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Send, User, Bot, Loader2, StopCircle } from 'lucide-react';
+import { ArrowLeft, Send, User, Bot, Loader2, StopCircle, Database, Zap } from 'lucide-react';
 import useStore from '../store/useStore';
+import { supabase, getSessionSafe } from '../lib/supabase';
+
+function generateSessionId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 export default function AuraChatMode({ onBack }) {
   const { backendUrl } = useStore();
@@ -9,6 +17,8 @@ export default function AuraChatMode({ onBack }) {
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [activePipeline, setActivePipeline] = useState(null);
+  const [sessionId] = useState(() => generateSessionId());
+  const [userId, setUserId] = useState(null);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const conversationRef = useRef([]);
@@ -20,6 +30,10 @@ export default function AuraChatMode({ onBack }) {
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Get user ID for persistence
+    getSessionSafe().then(session => {
+      if (session?.user?.id) setUserId(session.user.id);
+    });
   }, []);
 
   const handleCancel = useCallback(() => {
@@ -39,7 +53,7 @@ export default function AuraChatMode({ onBack }) {
 
     const assistantId = Date.now() + 1;
     setActivePipeline(null);
-    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', pipeline: null }]);
+    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', pipeline: null, rag: false }]);
 
     try {
       const controller = new AbortController();
@@ -52,6 +66,8 @@ export default function AuraChatMode({ onBack }) {
         body: JSON.stringify({
           messages: conversationRef.current.slice(-20),
           stream: true,
+          session_id: sessionId,
+          user_id: userId,
         }),
         signal: controller.signal,
       });
@@ -79,7 +95,7 @@ export default function AuraChatMode({ onBack }) {
               const label = parsed.label || parsed.pipeline;
               setActivePipeline(label);
               setMessages(prev =>
-                prev.map(m => (m.id === assistantId ? { ...m, pipeline: label } : m)),
+                prev.map(m => (m.id === assistantId ? { ...m, pipeline: label, rag: !!parsed.rag } : m)),
               );
               continue;
             }
@@ -109,7 +125,7 @@ export default function AuraChatMode({ onBack }) {
       setIsProcessing(false);
       abortRef.current = null;
     }
-  }, [input, isProcessing, backendUrl]);
+  }, [input, isProcessing, backendUrl, sessionId, userId]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -128,12 +144,18 @@ export default function AuraChatMode({ onBack }) {
         >
           <ArrowLeft size={15} />
         </button>
-        <div>
+        <div className="flex-1">
           <h2 className="text-base font-semibold text-[#1A1A1A]">AURA Chat</h2>
           <p className="text-xs text-[#A0A0A0]">
             {activePipeline ? `Pipeline: ${activePipeline}` : 'Smart pipeline routing'}
           </p>
         </div>
+        {userId && (
+          <div className="flex items-center gap-1 text-[10px] text-[#B87333]/60 bg-[rgba(184,115,51,0.06)] px-2 py-1 rounded-full">
+            <Database size={10} />
+            <span>Persistent</span>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -146,6 +168,7 @@ export default function AuraChatMode({ onBack }) {
             <h3 className="text-lg font-semibold text-[#1A1A1A] mb-1">Start a conversation</h3>
             <p className="text-sm text-[#6B6B6B] max-w-xs">
               AURA auto-selects the optimal pipeline — from quick chat to deep reasoning.
+              Your messages are persisted to the Global Brain.
             </p>
           </div>
         )}
@@ -175,11 +198,18 @@ export default function AuraChatMode({ onBack }) {
                     : 'bg-[#F5F0EB] text-[#1A1A1A] rounded-bl-md'
                 }`}
               >
-                {msg.role === 'assistant' && msg.pipeline && (
-                  <div className="px-4 pt-2.5 pb-0">
-                    <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(184,115,51,0.1)] text-[#B87333]">
-                      {msg.pipeline}
-                    </span>
+                {msg.role === 'assistant' && (msg.pipeline || msg.rag) && (
+                  <div className="px-4 pt-2.5 pb-0 flex items-center gap-1.5">
+                    {msg.pipeline && (
+                      <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(184,115,51,0.1)] text-[#B87333]">
+                        {msg.pipeline}
+                      </span>
+                    )}
+                    {msg.rag && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(59,130,246,0.08)] text-blue-500">
+                        <Zap size={8} /> RAG
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>

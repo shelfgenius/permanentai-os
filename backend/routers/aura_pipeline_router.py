@@ -18,6 +18,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.pipeline_router import classify_query, get_pipeline, PIPELINES
+from services.brain_rag import retrieve_context
+from services.chat_persistence import save_message, get_context_window
 
 logger = logging.getLogger("aura_pipeline_router")
 router = APIRouter(prefix="/aura/pipeline", tags=["aura-pipeline"])
@@ -89,6 +91,8 @@ class PipelineChatRequest(BaseModel):
     messages: List[PipelineChatMessage]
     stream: bool = True
     force_pipeline: Optional[str] = None  # override auto-classification
+    session_id: Optional[str] = None      # for persistent chat history
+    user_id: Optional[str] = None         # for RAG + persistence
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────
@@ -116,8 +120,37 @@ async def aura_pipeline_chat(req: PipelineChatRequest):
     if not api_key:
         raise HTTPException(503, "No API key configured")
 
-    # Build message list with appropriate system prompt
+    # ── RAG: inject relevant knowledge context (skip for greetings) ────
+    rag_context = ""
+    if category not in ("greeting",) and len(latest) > 15:
+        try:
+            rag_context = await retrieve_context(
+                query=latest,
+                user_id=req.user_id,
+                top_k=5,
+                max_chars=4000,
+            )
+        except Exception as e:
+            logger.warning("RAG context retrieval failed: %s", e)
+
+    # ── Persist user message ──────────────────────────────────────────
+    if req.session_id and req.user_id:
+        try:
+            await save_message(
+                session_id=req.session_id,
+                user_id=req.user_id,
+                role="user",
+                content=latest,
+                pipeline=category,
+            )
+        except Exception as e:
+            logger.warning("Failed to persist user message: %s", e)
+
+    # Build message list with appropriate system prompt + RAG context
     system_prompt = SYSTEM_PROMPTS.get(category, _AURA_CASUAL_PROMPT)
+    if rag_context:
+        system_prompt += "\n\n" + rag_context
+
     msgs = [{"role": m.role, "content": m.content} for m in req.messages]
     # Replace or prepend system prompt
     if not msgs or msgs[0].get("role") != "system":
@@ -152,8 +185,12 @@ async def aura_pipeline_chat(req: PipelineChatRequest):
     if req.stream:
         async def stream_gen():
             # First event: pipeline metadata
-            yield f'data: {json.dumps({"pipeline": category, "label": pipeline["label"]})}\n\n'
+            meta = {"pipeline": category, "label": pipeline["label"]}
+            if rag_context:
+                meta["rag"] = True
+            yield f'data: {json.dumps(meta)}\n\n'
 
+            full_text = ""
             async with httpx.AsyncClient(timeout=180) as client:
                 async with client.stream(
                     "POST",
@@ -169,6 +206,30 @@ async def aura_pipeline_chat(req: PipelineChatRequest):
                     async for line in resp.aiter_lines():
                         if line.startswith("data: "):
                             yield line + "\n\n"
+                            # Collect full text for persistence
+                            raw = line[6:].strip()
+                            if raw and raw != "[DONE]":
+                                try:
+                                    chunk = json.loads(raw)
+                                    token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if token:
+                                        full_text += token
+                                except Exception:
+                                    pass
+
+            # Persist assistant response after stream completes
+            if req.session_id and req.user_id and full_text:
+                try:
+                    await save_message(
+                        session_id=req.session_id,
+                        user_id=req.user_id,
+                        role="assistant",
+                        content=full_text,
+                        pipeline=category,
+                        metadata={"model": pipeline["model"], "rag": bool(rag_context)},
+                    )
+                except Exception as e:
+                    logger.warning("Failed to persist assistant message: %s", e)
 
         return StreamingResponse(stream_gen(), media_type="text/event-stream")
     else:
@@ -184,6 +245,22 @@ async def aura_pipeline_chat(req: PipelineChatRequest):
                 raise HTTPException(r.status_code, f"Model error: {r.text[:200]}")
             data = r.json()
             data["pipeline"] = {"category": category, "label": pipeline["label"]}
+
+            # Persist for non-streaming
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if req.session_id and req.user_id and content:
+                try:
+                    await save_message(
+                        session_id=req.session_id,
+                        user_id=req.user_id,
+                        role="assistant",
+                        content=content,
+                        pipeline=category,
+                        metadata={"model": pipeline["model"], "rag": bool(rag_context)},
+                    )
+                except Exception:
+                    pass
+
             return data
         except httpx.TimeoutException:
             raise HTTPException(504, "Pipeline: model timeout")

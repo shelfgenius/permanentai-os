@@ -1,8 +1,92 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Send, User, Bot, Loader2, StopCircle, Database, Zap } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Send,
+  User,
+  Bot,
+  Loader2,
+  StopCircle,
+  Database,
+  Zap,
+  Sparkles,
+  BookOpen,
+  Wand2,
+  Brain,
+  Menu,
+} from 'lucide-react';
 import useStore from '../store/useStore';
-import { supabase, getSessionSafe } from '../lib/supabase';
+import { getSessionSafe } from '../lib/supabase';
+
+/* ── Inject fonts + liquid glass CSS (once) ──────────────────────────── */
+const STYLE_ID = 'aura-chat-styles';
+if (!document.getElementById(STYLE_ID)) {
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Source+Serif+4:ital,wght@0,400;1,400&display=swap';
+  document.head.appendChild(link);
+
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    .liquid-glass {
+      background: rgba(255,255,255,0.01);
+      background-blend-mode: luminosity;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      border: none;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+      position: relative;
+      overflow: hidden;
+    }
+    .liquid-glass::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1.4px;
+      background: linear-gradient(180deg,
+        rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 20%,
+        rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+        rgba(255,255,255,0.15) 80%, rgba(255,255,255,0.45) 100%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+    .liquid-glass-strong {
+      background: rgba(255,255,255,0.02);
+      background-blend-mode: luminosity;
+      backdrop-filter: blur(50px);
+      -webkit-backdrop-filter: blur(50px);
+      border: none;
+      box-shadow: 4px 4px 4px rgba(0,0,0,0.05), inset 0 1px 1px rgba(255,255,255,0.15);
+      position: relative;
+      overflow: hidden;
+    }
+    .liquid-glass-strong::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1.4px;
+      background: linear-gradient(180deg,
+        rgba(184,115,51,0.50) 0%, rgba(184,115,51,0.20) 20%,
+        rgba(184,115,51,0) 40%, rgba(184,115,51,0) 60%,
+        rgba(184,115,51,0.20) 80%, rgba(184,115,51,0.50) 100%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+    .chat-scroll::-webkit-scrollbar { width: 3px; }
+    .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(184,115,51,0.2); border-radius: 4px; }
+    .chat-scroll::-webkit-scrollbar-thumb:hover { background: rgba(184,115,51,0.35); }
+  `;
+  document.head.appendChild(style);
+}
 
 function generateSessionId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -10,6 +94,13 @@ function generateSessionId() {
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 }
+
+/* ── Suggested prompts ────────────────────────────────────────────────── */
+const SUGGESTIONS = [
+  { icon: Wand2, text: 'Explain quantum computing simply' },
+  { icon: BookOpen, text: 'Summarize latest AI research trends' },
+  { icon: Brain, text: 'Help me debug a React component' },
+];
 
 export default function AuraChatMode({ onBack }) {
   const { backendUrl } = useStore();
@@ -19,6 +110,7 @@ export default function AuraChatMode({ onBack }) {
   const [activePipeline, setActivePipeline] = useState(null);
   const [sessionId] = useState(() => generateSessionId());
   const [userId, setUserId] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const conversationRef = useRef([]);
@@ -30,7 +122,6 @@ export default function AuraChatMode({ onBack }) {
 
   useEffect(() => {
     inputRef.current?.focus();
-    // Get user ID for persistence
     getSessionSafe().then(session => {
       if (session?.user?.id) setUserId(session.user.id);
     });
@@ -41,8 +132,8 @@ export default function AuraChatMode({ onBack }) {
     setIsProcessing(false);
   }, []);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const handleSend = useCallback(async (overrideText) => {
+    const text = (overrideText || input).trim();
     if (!text || isProcessing) return;
     setInput('');
     setIsProcessing(true);
@@ -89,7 +180,6 @@ export default function AuraChatMode({ onBack }) {
           if (data === '[DONE]') continue;
           try {
             const parsed = JSON.parse(data);
-            // First event from pipeline router is metadata
             if (!gotPipelineMeta && parsed.pipeline) {
               gotPipelineMeta = true;
               const label = parsed.label || parsed.pipeline;
@@ -109,15 +199,12 @@ export default function AuraChatMode({ onBack }) {
           } catch {}
         }
       }
-
       conversationRef.current.push({ role: 'assistant', content: fullText });
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev =>
           prev.map(m =>
-            m.id === assistantId
-              ? { ...m, content: 'Error: Could not reach the backend.' }
-              : m,
+            m.id === assistantId ? { ...m, content: 'Error: Could not reach the backend.' } : m,
           ),
         );
       }
@@ -128,133 +215,299 @@ export default function AuraChatMode({ onBack }) {
   }, [input, isProcessing, backendUrl, sessionId, userId]);
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
   return (
-    <div className="flex flex-col bg-white" style={{ height: '100dvh' }}>
-      {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-[rgba(0,0,0,0.06)] bg-white/80 backdrop-blur-xl shrink-0">
-        <button
-          onClick={onBack}
-          className="w-9 h-9 flex items-center justify-center rounded-full border border-[rgba(184,115,51,0.2)] text-[#B87333] hover:border-[rgba(184,115,51,0.5)] transition-all"
+    <main
+      className="relative w-full flex min-h-screen overflow-hidden"
+      style={{ fontFamily: "'Poppins', sans-serif" }}
+    >
+      {/* ── Background Video ──────────────────────────────────────── */}
+      <video
+        className="fixed inset-0 w-full h-full object-cover z-[0]"
+        src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260328_115001_bcdaa3b4-03de-47e7-ad63-ae3e392c32d4.mp4"
+        autoPlay loop muted playsInline
+      />
+      <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/30 to-black/60 z-[1]" />
+
+      {/* ═══════════════════════════════════════════════════════════════
+          LEFT PANEL — Main Chat (52% desktop, full on mobile)
+          ═══════════════════════════════════════════════════════════════ */}
+      <div className="relative z-10 w-full lg:w-[52%] flex flex-col" style={{ height: '100dvh' }}>
+        {/* Glass overlay */}
+        <div className="liquid-glass-strong absolute inset-3 lg:inset-5 rounded-3xl pointer-events-none z-0" />
+
+        {/* ── Nav ─────────────────────────────────────────────────── */}
+        <motion.nav
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="relative z-10 flex items-center justify-between px-8 lg:px-10 pt-7 pb-3"
         >
-          <ArrowLeft size={15} />
-        </button>
-        <div className="flex-1">
-          <h2 className="text-base font-semibold text-[#1A1A1A]">AURA Chat</h2>
-          <p className="text-xs text-[#A0A0A0]">
-            {activePipeline ? `Pipeline: ${activePipeline}` : 'Smart pipeline routing'}
-          </p>
-        </div>
-        {userId && (
-          <div className="flex items-center gap-1 text-[10px] text-[#B87333]/60 bg-[rgba(184,115,51,0.06)] px-2 py-1 rounded-full">
-            <Database size={10} />
-            <span>Persistent</span>
-          </div>
-        )}
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center pt-24 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#B87333]/12 to-[#CD7F32]/5 flex items-center justify-center mb-4">
-              <Bot size={28} className="text-[#B87333]/60" />
-            </div>
-            <h3 className="text-lg font-semibold text-[#1A1A1A] mb-1">Start a conversation</h3>
-            <p className="text-sm text-[#6B6B6B] max-w-xs">
-              AURA auto-selects the optimal pipeline — from quick chat to deep reasoning.
-              Your messages are persisted to the Global Brain.
-            </p>
-          </div>
-        )}
-
-        <div className="max-w-3xl mx-auto space-y-4">
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onBack}
+              className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:scale-105 transition-all"
             >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  msg.role === 'user'
-                    ? 'bg-[rgba(184,115,51,0.1)] text-[#B87333]'
-                    : 'bg-[rgba(0,0,0,0.04)] text-[#888]'
-                }`}
-              >
-                {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+              <ArrowLeft size={16} />
+            </button>
+            <Sparkles size={20} className="text-[#B87333]" />
+            <span className="text-white font-medium text-lg tracking-tight">aura</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {userId && (
+              <div className="liquid-glass rounded-full px-3 py-1 flex items-center gap-1.5 text-[10px] text-white/50">
+                <Database size={10} className="text-[#B87333]/60" />
+                <span>Persistent</span>
               </div>
-              <div
-                className={`max-w-[75%] rounded-2xl text-[14px] leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-[#B87333] text-white rounded-br-md px-4 py-3'
-                    : 'bg-[#F5F0EB] text-[#1A1A1A] rounded-bl-md'
-                }`}
-              >
-                {msg.role === 'assistant' && (msg.pipeline || msg.rag) && (
-                  <div className="px-4 pt-2.5 pb-0 flex items-center gap-1.5">
-                    {msg.pipeline && (
-                      <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(184,115,51,0.1)] text-[#B87333]">
-                        {msg.pipeline}
-                      </span>
-                    )}
-                    {msg.rag && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[rgba(59,130,246,0.08)] text-blue-500">
-                        <Zap size={8} /> RAG
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>
-                  {msg.content ||
-                    (msg.role === 'assistant' && (
-                      <Loader2 size={16} className="animate-spin text-[#B87333]" />
-                    ))}
-                </div>
+            )}
+            <button
+              onClick={() => setSidebarOpen(v => !v)}
+              className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:scale-105 transition-all lg:hidden"
+            >
+              <Menu size={16} />
+            </button>
+          </div>
+        </motion.nav>
+
+        {/* ── Chat Messages ───────────────────────────────────────── */}
+        <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto chat-scroll px-8 lg:px-10 py-4">
+          {messages.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="flex flex-col items-center justify-center h-full text-center"
+            >
+              <div className="liquid-glass w-20 h-20 rounded-3xl flex items-center justify-center mb-6">
+                <Bot size={32} className="text-[#B87333]/70" />
+              </div>
+              <h1 className="text-3xl lg:text-4xl text-white font-medium tracking-tight mb-2">
+                Start a <em style={{ fontFamily: "'Source Serif 4', serif" }} className="text-white/70">conversation</em>
+              </h1>
+              <p className="text-white/40 text-sm max-w-xs mb-10 leading-relaxed">
+                AURA auto-selects the optimal pipeline — from quick chat to deep reasoning.
+              </p>
+
+              {/* Suggestion pills */}
+              <div className="flex flex-wrap justify-center gap-2">
+                {SUGGESTIONS.map(({ icon: Icon, text }) => (
+                  <button
+                    key={text}
+                    onClick={() => { setInput(text); setTimeout(() => handleSend(text), 50); }}
+                    className="liquid-glass rounded-full px-4 py-2 flex items-center gap-2 text-xs text-white/60 hover:text-white hover:scale-105 transition-all"
+                  >
+                    <Icon size={13} className="text-[#B87333]/60" />
+                    {text}
+                  </button>
+                ))}
               </div>
             </motion.div>
-          ))}
+          )}
+
+          <div className="max-w-2xl mx-auto space-y-4">
+            {messages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    msg.role === 'user'
+                      ? 'bg-[#B87333]/20 text-[#B87333]'
+                      : 'liquid-glass text-white/50'
+                  }`}
+                >
+                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+                </div>
+                <div
+                  className={`max-w-[78%] rounded-2xl text-[14px] leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-[#B87333] text-white rounded-br-md px-4 py-3'
+                      : 'liquid-glass-strong rounded-bl-md text-white/80'
+                  }`}
+                >
+                  {msg.role === 'assistant' && (msg.pipeline || msg.rag) && (
+                    <div className="px-4 pt-3 pb-0 flex items-center gap-1.5">
+                      {msg.pipeline && (
+                        <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[#B87333]/15 text-[#D4A574]">
+                          {msg.pipeline}
+                        </span>
+                      )}
+                      {msg.rag && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-white/[0.06] text-white/50">
+                          <Zap size={8} /> RAG
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>
+                    {msg.content ||
+                      (msg.role === 'assistant' && (
+                        <Loader2 size={16} className="animate-spin text-[#B87333]" />
+                      ))}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Input Bar ───────────────────────────────────────────── */}
+        <div className="relative z-10 px-8 lg:px-10 pb-7 pt-3">
+          <div className="liquid-glass-strong rounded-full pl-6 pr-2 py-2 flex items-center gap-3 max-w-2xl mx-auto">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask AURA anything..."
+              disabled={isProcessing}
+              className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none disabled:opacity-50"
+              style={{ fontFamily: "'Poppins', sans-serif" }}
+            />
+            {isProcessing ? (
+              <button
+                onClick={handleCancel}
+                className="bg-red-500/70 hover:bg-red-500 rounded-full p-2.5 text-white transition-colors flex-shrink-0 hover:scale-105 active:scale-95"
+              >
+                <StopCircle size={18} />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim()}
+                className="bg-[#B87333] hover:bg-[#A0652D] disabled:opacity-25 rounded-full p-2.5 text-white transition-all flex-shrink-0 hover:scale-105 active:scale-95"
+              >
+                <Send size={18} />
+              </button>
+            )}
+          </div>
+
+          {/* Pipeline indicator */}
+          <AnimatePresence>
+            {activePipeline && (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex justify-center mt-2"
+              >
+                <span className="text-[10px] text-white/30 uppercase tracking-wider">
+                  Pipeline: {activePipeline}
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bottom quote */}
+        <div className="relative z-10 px-8 lg:px-10 pb-6 text-center">
+          <p className="text-[10px] uppercase tracking-widest text-white/20">Intelligent Pipeline Routing</p>
         </div>
       </div>
 
-      {/* Input bar */}
-      <div className="px-5 py-4 border-t border-[rgba(0,0,0,0.06)] bg-white/80 backdrop-blur-xl shrink-0">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask AURA anything..."
-            disabled={isProcessing}
-            className="flex-1 bg-[rgba(0,0,0,0.03)] rounded-xl px-4 py-3 text-[14px] text-[#1A1A1A] placeholder:text-[#A0A0A0] outline-none border border-transparent focus:border-[rgba(184,115,51,0.3)] transition-colors"
-          />
-          {isProcessing ? (
-            <button
-              onClick={handleCancel}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-all"
-            >
-              <StopCircle size={16} />
+      {/* ═══════════════════════════════════════════════════════════════
+          RIGHT PANEL — Sidebar (48% desktop only)
+          ═══════════════════════════════════════════════════════════════ */}
+      <div className={`relative z-10 w-[48%] flex-col p-5 hidden lg:flex`} style={{ height: '100dvh' }}>
+
+        {/* Top bar */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.15 }}
+          className="flex items-center justify-between mb-6"
+        >
+          <div className="liquid-glass rounded-full px-4 py-2 flex items-center gap-3">
+            {['Global Brain', 'Pipelines', 'Memory'].map((label) => (
+              <span key={label} className="text-xs text-white/50 hover:text-white transition-colors cursor-pointer">
+                {label}
+              </span>
+            ))}
+            <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center">
+              <ArrowRight size={13} className="text-white/60" />
+            </div>
+          </div>
+          <button className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-[#B87333] hover:scale-105 transition-transform">
+            <Sparkles size={16} />
+          </button>
+        </motion.div>
+
+        {/* Session info card */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.25 }}
+          className="liquid-glass rounded-3xl p-5 w-64 mb-8"
+        >
+          <h3 className="text-white font-medium text-sm mb-1">Current Session</h3>
+          <p className="text-white/40 text-xs leading-relaxed mb-3">
+            {messages.length} messages · {activePipeline || 'awaiting input'}
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#B87333] animate-pulse" />
+            <span className="text-[10px] text-white/40 uppercase tracking-wider">
+              {isProcessing ? 'Processing' : 'Ready'}
+            </span>
+          </div>
+        </motion.div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Bottom feature section */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, delay: 0.4 }}
+          className="liquid-glass rounded-[2.5rem] p-4 space-y-3"
+        >
+          {/* Two side-by-side cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="liquid-glass rounded-3xl p-5">
+              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mb-3">
+                <Wand2 size={15} className="text-[#B87333]" />
+              </div>
+              <h4 className="text-white text-xs font-medium mb-1">Processing</h4>
+              <p className="text-white/40 text-[10px] leading-relaxed">Smart pipeline routing with context-aware model selection.</p>
+            </div>
+            <div className="liquid-glass rounded-3xl p-5">
+              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mb-3">
+                <BookOpen size={15} className="text-[#B87333]" />
+              </div>
+              <h4 className="text-white text-xs font-medium mb-1">Knowledge</h4>
+              <p className="text-white/40 text-[10px] leading-relaxed">RAG-powered retrieval from your persistent Global Brain.</p>
+            </div>
+          </div>
+
+          {/* Bottom card */}
+          <div className="liquid-glass rounded-3xl p-5 flex items-center gap-4">
+            <div className="w-24 h-16 rounded-2xl bg-gradient-to-br from-[#B87333]/20 to-[#CD7F32]/5 flex items-center justify-center flex-shrink-0">
+              <Brain size={24} className="text-[#B87333]/60" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-white text-xs font-medium mb-1">Persistent Memory</h4>
+              <p className="text-white/40 text-[10px] leading-relaxed">Every conversation is saved to Supabase and enriches future context.</p>
+            </div>
+            <button className="liquid-glass w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:scale-105 transition-all flex-shrink-0">
+              <ArrowRight size={14} />
             </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#B87333] text-white disabled:opacity-40 hover:bg-[#A0652D] transition-all"
-            >
-              <Send size={16} />
-            </button>
-          )}
+          </div>
+        </motion.div>
+
+        {/* Bottom tagline */}
+        <div className="pt-6 flex items-center justify-center gap-3">
+          <div className="h-px flex-1 bg-white/[0.06]" />
+          <span className="text-[10px] uppercase tracking-widest text-white/20">Global Brain AI</span>
+          <div className="h-px flex-1 bg-white/[0.06]" />
         </div>
       </div>
-    </div>
+    </main>
   );
 }

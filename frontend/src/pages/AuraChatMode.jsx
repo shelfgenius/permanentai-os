@@ -15,11 +15,15 @@ import {
   Wand2,
   Brain,
   Menu,
+  Download,
+  Twitter,
+  Linkedin,
+  Instagram,
 } from 'lucide-react';
 import useStore from '../store/useStore';
 import { getSessionSafe } from '../lib/supabase';
 
-/* ── Inject fonts + liquid glass CSS (once) ──────────────────────────── */
+/* ── Inject Poppins + Source Serif 4 + liquid glass CSS (once) ────────── */
 const STYLE_ID = 'aura-chat-styles';
 if (!document.getElementById(STYLE_ID)) {
   const link = document.createElement('link');
@@ -95,7 +99,6 @@ function generateSessionId() {
   });
 }
 
-/* ── Suggested prompts ────────────────────────────────────────────────── */
 const SUGGESTIONS = [
   { icon: Wand2, text: 'Explain quantum computing simply' },
   { icon: BookOpen, text: 'Summarize latest AI research trends' },
@@ -110,7 +113,6 @@ export default function AuraChatMode({ onBack }) {
   const [activePipeline, setActivePipeline] = useState(null);
   const [sessionId] = useState(() => generateSessionId());
   const [userId, setUserId] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const conversationRef = useRef([]);
@@ -218,10 +220,13 @@ export default function AuraChatMode({ onBack }) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const SERIF = "'Source Serif 4', serif";
+  const FONT = "'Poppins', sans-serif";
+
   return (
     <main
-      className="relative w-full flex min-h-screen overflow-hidden"
-      style={{ fontFamily: "'Poppins', sans-serif" }}
+      className="relative w-full flex flex-row min-h-screen overflow-hidden"
+      style={{ fontFamily: FONT }}
     >
       {/* ── Background Video ──────────────────────────────────────── */}
       <video
@@ -229,31 +234,30 @@ export default function AuraChatMode({ onBack }) {
         src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260328_115001_bcdaa3b4-03de-47e7-ad63-ae3e392c32d4.mp4"
         autoPlay loop muted playsInline
       />
-      <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/30 to-black/60 z-[1]" />
 
       {/* ═══════════════════════════════════════════════════════════════
-          LEFT PANEL — Main Chat (52% desktop, full on mobile)
+          LEFT PANEL — 52% — Chat
           ═══════════════════════════════════════════════════════════════ */}
       <div className="relative z-10 w-full lg:w-[52%] flex flex-col" style={{ height: '100dvh' }}>
-        {/* Glass overlay */}
-        <div className="liquid-glass-strong absolute inset-3 lg:inset-5 rounded-3xl pointer-events-none z-0" />
+        {/* Glass overlay behind entire left panel */}
+        <div className="liquid-glass-strong absolute inset-4 lg:inset-6 rounded-3xl pointer-events-none z-0" />
 
         {/* ── Nav ─────────────────────────────────────────────────── */}
         <motion.nav
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="relative z-10 flex items-center justify-between px-8 lg:px-10 pt-7 pb-3"
+          className="relative z-10 flex items-center justify-between px-8 lg:px-10 pt-8 pb-2"
         >
           <div className="flex items-center gap-3">
             <button
               onClick={onBack}
-              className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:scale-105 transition-all"
+              className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:text-white/80 hover:scale-105 transition-all"
             >
               <ArrowLeft size={16} />
             </button>
             <Sparkles size={20} className="text-[#B87333]" />
-            <span className="text-white font-medium text-lg tracking-tight">aura</span>
+            <span className="text-white font-semibold text-2xl tracking-tighter">aura</span>
           </div>
           <div className="flex items-center gap-2">
             {userId && (
@@ -262,103 +266,136 @@ export default function AuraChatMode({ onBack }) {
                 <span>Persistent</span>
               </div>
             )}
-            <button
-              onClick={() => setSidebarOpen(v => !v)}
-              className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:scale-105 transition-all lg:hidden"
-            >
-              <Menu size={16} />
+            <button className="liquid-glass rounded-full px-4 py-2 flex items-center gap-2 text-white/60 text-xs hover:text-white hover:scale-105 transition-all">
+              <Menu size={14} />
+              <span className="hidden sm:inline">Menu</span>
             </button>
           </div>
         </motion.nav>
 
-        {/* ── Chat Messages ───────────────────────────────────────── */}
-        <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto chat-scroll px-8 lg:px-10 py-4">
-          {messages.length === 0 && (
+        {/* ── Chat Messages / Hero Empty State ────────────────────── */}
+        <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto chat-scroll px-8 lg:px-10 py-4 flex flex-col">
+          {messages.length === 0 ? (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="flex flex-col items-center justify-center h-full text-center"
+              transition={{ duration: 0.7, delay: 0.15 }}
+              className="flex-1 flex flex-col items-center justify-center text-center"
             >
-              <div className="liquid-glass w-20 h-20 rounded-3xl flex items-center justify-center mb-6">
-                <Bot size={32} className="text-[#B87333]/70" />
+              {/* Logo */}
+              <div className="liquid-glass w-20 h-20 rounded-3xl flex items-center justify-center mb-8">
+                <Bot size={36} className="text-[#B87333]/70" />
               </div>
-              <h1 className="text-3xl lg:text-4xl text-white font-medium tracking-tight mb-2">
-                Start a <em style={{ fontFamily: "'Source Serif 4', serif" }} className="text-white/70">conversation</em>
+
+              {/* Hero heading — Bloom-style */}
+              <h1
+                className="text-5xl lg:text-6xl text-white font-medium tracking-[-0.05em] mb-3 leading-[1.05]"
+              >
+                Innovating the<br />
+                <em style={{ fontFamily: SERIF }} className="text-white/80">spirit of </em>
+                <span className="text-[#D4A574]">aura</span>
+                <em style={{ fontFamily: SERIF }} className="text-white/80"> AI</em>
               </h1>
-              <p className="text-white/40 text-sm max-w-xs mb-10 leading-relaxed">
-                AURA auto-selects the optimal pipeline — from quick chat to deep reasoning.
+
+              <p className="text-white/40 text-sm max-w-sm mb-8 leading-relaxed">
+                Multi-model reasoning, persistent memory, and intelligent pipeline routing — all in one conversation.
               </p>
 
-              {/* Suggestion pills */}
-              <div className="flex flex-wrap justify-center gap-2">
+              {/* CTA button — Bloom-style */}
+              <button
+                onClick={() => inputRef.current?.focus()}
+                className="liquid-glass-strong rounded-full px-7 py-3 flex items-center gap-3 text-white text-sm font-medium mb-8 hover:scale-105 active:scale-95 transition-transform"
+              >
+                Start Chatting
+                <div className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center">
+                  <ArrowRight size={14} />
+                </div>
+              </button>
+
+              {/* Three pills — Bloom-style */}
+              <div className="flex flex-wrap justify-center gap-2 mb-10">
                 {SUGGESTIONS.map(({ icon: Icon, text }) => (
                   <button
                     key={text}
                     onClick={() => { setInput(text); setTimeout(() => handleSend(text), 50); }}
                     className="liquid-glass rounded-full px-4 py-2 flex items-center gap-2 text-xs text-white/60 hover:text-white hover:scale-105 transition-all"
                   >
-                    <Icon size={13} className="text-[#B87333]/60" />
+                    <Icon size={12} className="text-[#B87333]/60" />
                     {text}
                   </button>
                 ))}
               </div>
-            </motion.div>
-          )}
 
-          <div className="max-w-2xl mx-auto space-y-4">
-            {messages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    msg.role === 'user'
-                      ? 'bg-[#B87333]/20 text-[#B87333]'
-                      : 'liquid-glass text-white/50'
-                  }`}
-                >
-                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+              {/* Bottom quote — Bloom-style */}
+              <div className="mt-auto pt-6 w-full max-w-md">
+                <p className="text-[10px] tracking-widest uppercase text-white/30 mb-2">Intelligent Companion</p>
+                <p className="text-white/50 text-sm leading-relaxed">
+                  <span>"We imagined a </span>
+                  <em style={{ fontFamily: SERIF }} className="text-white/70">mind with no boundaries.</em>
+                  <span>"</span>
+                </p>
+                <div className="flex items-center justify-center gap-3 mt-3">
+                  <div className="h-px w-10 bg-white/10" />
+                  <span className="text-[10px] tracking-widest uppercase text-white/25">AURA LABS</span>
+                  <div className="h-px w-10 bg-white/10" />
                 </div>
-                <div
-                  className={`max-w-[78%] rounded-2xl text-[14px] leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-[#B87333] text-white rounded-br-md px-4 py-3'
-                      : 'liquid-glass-strong rounded-bl-md text-white/80'
-                  }`}
+              </div>
+            </motion.div>
+          ) : (
+            <div className="max-w-2xl mx-auto space-y-4 w-full">
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
-                  {msg.role === 'assistant' && (msg.pipeline || msg.rag) && (
-                    <div className="px-4 pt-3 pb-0 flex items-center gap-1.5">
-                      {msg.pipeline && (
-                        <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[#B87333]/15 text-[#D4A574]">
-                          {msg.pipeline}
-                        </span>
-                      )}
-                      {msg.rag && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-white/[0.06] text-white/50">
-                          <Zap size={8} /> RAG
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>
-                    {msg.content ||
-                      (msg.role === 'assistant' && (
-                        <Loader2 size={16} className="animate-spin text-[#B87333]" />
-                      ))}
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      msg.role === 'user'
+                        ? 'bg-[#B87333]/20 text-[#B87333]'
+                        : 'bg-white/10 text-white/50'
+                    }`}
+                  >
+                    {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                  <div
+                    className={`max-w-[78%] rounded-2xl text-[14px] leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-[#B87333] text-white rounded-br-md px-4 py-3'
+                        : 'liquid-glass-strong rounded-bl-md text-white/80'
+                    }`}
+                  >
+                    {msg.role === 'assistant' && (msg.pipeline || msg.rag) && (
+                      <div className="px-4 pt-3 pb-0 flex items-center gap-1.5">
+                        {msg.pipeline && (
+                          <span className="inline-block text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-[#B87333]/15 text-[#D4A574]">
+                            {msg.pipeline}
+                          </span>
+                        )}
+                        {msg.rag && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-white/[0.06] text-white/50">
+                            <Zap size={8} /> RAG
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className={msg.role === 'assistant' ? 'px-4 py-3 whitespace-pre-wrap' : 'whitespace-pre-wrap'}>
+                      {msg.content ||
+                        (msg.role === 'assistant' && (
+                          <Loader2 size={16} className="animate-spin text-[#B87333]" />
+                        ))}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Input Bar ───────────────────────────────────────────── */}
-        <div className="relative z-10 px-8 lg:px-10 pb-7 pt-3">
+        <div className="relative z-10 px-8 lg:px-10 pb-8 pt-3">
           <div className="liquid-glass-strong rounded-full pl-6 pr-2 py-2 flex items-center gap-3 max-w-2xl mx-auto">
             <input
               ref={inputRef}
@@ -369,7 +406,7 @@ export default function AuraChatMode({ onBack }) {
               placeholder="Ask AURA anything..."
               disabled={isProcessing}
               className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none disabled:opacity-50"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
+              style={{ fontFamily: FONT }}
             />
             {isProcessing ? (
               <button
@@ -388,8 +425,6 @@ export default function AuraChatMode({ onBack }) {
               </button>
             )}
           </div>
-
-          {/* Pipeline indicator */}
           <AnimatePresence>
             {activePipeline && (
               <motion.div
@@ -398,40 +433,40 @@ export default function AuraChatMode({ onBack }) {
                 exit={{ opacity: 0 }}
                 className="flex justify-center mt-2"
               >
-                <span className="text-[10px] text-white/30 uppercase tracking-wider">
+                <span className="text-[10px] text-white/25 uppercase tracking-wider">
                   Pipeline: {activePipeline}
                 </span>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-
-        {/* Bottom quote */}
-        <div className="relative z-10 px-8 lg:px-10 pb-6 text-center">
-          <p className="text-[10px] uppercase tracking-widest text-white/20">Intelligent Pipeline Routing</p>
-        </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════
-          RIGHT PANEL — Sidebar (48% desktop only)
+          RIGHT PANEL — 48% — Desktop only
           ═══════════════════════════════════════════════════════════════ */}
-      <div className={`relative z-10 w-[48%] flex-col p-5 hidden lg:flex`} style={{ height: '100dvh' }}>
+      <div className="relative z-10 w-[48%] flex-col p-5 hidden lg:flex" style={{ height: '100dvh' }}>
 
-        {/* Top bar */}
+        {/* ── Top bar: socials + account ───────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.15 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
           className="flex items-center justify-between mb-6"
         >
-          <div className="liquid-glass rounded-full px-4 py-2 flex items-center gap-3">
-            {['Global Brain', 'Pipelines', 'Memory'].map((label) => (
-              <span key={label} className="text-xs text-white/50 hover:text-white transition-colors cursor-pointer">
-                {label}
-              </span>
+          <div className="liquid-glass rounded-full px-3 py-2 flex items-center gap-2">
+            {[Twitter, Linkedin, Instagram].map((Icon, i) => (
+              <a
+                key={i}
+                href="#"
+                className="text-white hover:text-white/80 transition-colors"
+                aria-label="social"
+              >
+                <Icon size={16} />
+              </a>
             ))}
-            <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center">
-              <ArrowRight size={13} className="text-white/60" />
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center ml-1">
+              <ArrowRight size={14} className="text-white/60" />
             </div>
           </div>
           <button className="liquid-glass w-9 h-9 rounded-full flex items-center justify-center text-[#B87333] hover:scale-105 transition-transform">
@@ -439,12 +474,12 @@ export default function AuraChatMode({ onBack }) {
           </button>
         </motion.div>
 
-        {/* Session info card */}
+        {/* ── Community / Session card ─────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.25 }}
-          className="liquid-glass rounded-3xl p-5 w-64 mb-8"
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="liquid-glass rounded-3xl p-5 w-56 mb-6"
         >
           <h3 className="text-white font-medium text-sm mb-1">Current Session</h3>
           <p className="text-white/40 text-xs leading-relaxed mb-3">
@@ -458,26 +493,26 @@ export default function AuraChatMode({ onBack }) {
           </div>
         </motion.div>
 
-        {/* Spacer */}
+        {/* ── Spacer ──────────────────────────────────────────────── */}
         <div className="flex-1" />
 
-        {/* Bottom feature section */}
+        {/* ── Bottom feature section ──────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.4 }}
-          className="liquid-glass rounded-[2.5rem] p-4 space-y-3"
+          transition={{ duration: 0.7, delay: 0.35 }}
+          className="liquid-glass rounded-[2.5rem] p-4 space-y-3 mt-auto"
         >
           {/* Two side-by-side cards */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="liquid-glass rounded-3xl p-5">
+            <div className="liquid-glass rounded-3xl p-5 hover:scale-105 transition-transform">
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mb-3">
                 <Wand2 size={15} className="text-[#B87333]" />
               </div>
               <h4 className="text-white text-xs font-medium mb-1">Processing</h4>
               <p className="text-white/40 text-[10px] leading-relaxed">Smart pipeline routing with context-aware model selection.</p>
             </div>
-            <div className="liquid-glass rounded-3xl p-5">
+            <div className="liquid-glass rounded-3xl p-5 hover:scale-105 transition-transform">
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center mb-3">
                 <BookOpen size={15} className="text-[#B87333]" />
               </div>
@@ -486,23 +521,23 @@ export default function AuraChatMode({ onBack }) {
             </div>
           </div>
 
-          {/* Bottom card */}
+          {/* Bottom card — Bloom-style with thumbnail + description + "+" button */}
           <div className="liquid-glass rounded-3xl p-5 flex items-center gap-4">
             <div className="w-24 h-16 rounded-2xl bg-gradient-to-br from-[#B87333]/20 to-[#CD7F32]/5 flex items-center justify-center flex-shrink-0">
               <Brain size={24} className="text-[#B87333]/60" />
             </div>
             <div className="flex-1 min-w-0">
               <h4 className="text-white text-xs font-medium mb-1">Persistent Memory</h4>
-              <p className="text-white/40 text-[10px] leading-relaxed">Every conversation is saved to Supabase and enriches future context.</p>
+              <p className="text-white/40 text-[10px] leading-relaxed">Every conversation enriches future context through the Global Brain.</p>
             </div>
             <button className="liquid-glass w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:scale-105 transition-all flex-shrink-0">
-              <ArrowRight size={14} />
+              <span className="text-lg leading-none">+</span>
             </button>
           </div>
         </motion.div>
 
         {/* Bottom tagline */}
-        <div className="pt-6 flex items-center justify-center gap-3">
+        <div className="pt-5 flex items-center justify-center gap-3">
           <div className="h-px flex-1 bg-white/[0.06]" />
           <span className="text-[10px] uppercase tracking-widest text-white/20">Global Brain AI</span>
           <div className="h-px flex-1 bg-white/[0.06]" />
